@@ -1,0 +1,1228 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<title>UT Poker 營運儀表板</title>
+<link rel="icon" href="/ut-logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;600;700&family=Noto+Serif+TC:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<style>
+/* Tokens the Claude dashboard used to provide */
+:root{color-scheme:light;
+  --font-anthropic-sans:"Noto Sans TC",system-ui,-apple-system,"Segoe UI","PingFang TC","Microsoft JhengHei",sans-serif;
+  --font-anthropic-serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
+  --cds-font-size-caption:12.5px;--cds-font-size-body:14.5px;--cds-font-size-heading:17px;--cds-font-size-title:26px;--cds-font-weight-medium:600;
+  --cds-gap-xs:4px;--cds-gap-sm:8px;--cds-gap-md:12px;--cds-gap-lg:20px;--cds-gap-xl:28px;
+  --cds-pad-sm:8px;--cds-pad-md:12px;--cds-pad-lg:16px;--cds-radius:8px}
+html,body{margin:0;background:#F4F7FC;color:#14213D;font-family:var(--font-anthropic-sans);font-size:14px}
+img{max-width:100%}
+[hidden]{display:none!important}
+#dash-root{max-width:1240px;margin:0 auto;padding:16px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px))}
+.dash-select{appearance:none;font:inherit;font-size:14px;color:#14213D;background-color:#fff;border:1px solid #DCE3EF;border-radius:6px;padding:5px 30px 5px 10px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%235B6478' stroke-width='1.5'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 10px center;cursor:pointer}
+.dash-skeleton{position:relative;color:transparent!important}
+.dash-skeleton::after{content:"";position:absolute;left:0;top:50%;width:min(80px,100%);height:.8em;transform:translateY(-50%);border-radius:4px;background:#E7ECF4}
+.ut-topbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;font-size:12px;color:#5B6478;margin-bottom:10px}
+.ut-topbar button{appearance:none;font:inherit;font-size:12px;border:1px solid #DCE3EF;background:#fff;color:#173069;border-radius:6px;padding:4px 10px;cursor:pointer}
+.ut-login{position:fixed;inset:0;background:#173069;display:grid;place-items:center;z-index:50;padding:16px}
+.ut-login form{background:#fff;border-radius:12px;padding:28px 24px;width:min(360px,100%);display:flex;flex-direction:column;gap:14px;align-items:center;box-shadow:0 20px 50px rgba(0,0,0,.3)}
+.ut-login img{width:96px;height:96px;border-radius:12px}
+.ut-login h1{margin:0;font-size:18px;color:#173069}
+.ut-login input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;border:1px solid #DCE3EF;border-radius:8px;padding:10px 12px}
+.ut-login button{width:100%;font:inherit;font-size:15px;border:0;background:#173069;color:#fff;border-radius:8px;padding:10px;cursor:pointer}
+.ut-login .err{color:#C8372D;font-size:13px;min-height:1em;margin:0}
+</style>
+</head>
+<body>
+<div class="ut-login" id="ut-login" hidden>
+  <form id="ut-login-form">
+    <img src="/ut-logo.png" alt="UT Poker">
+    <h1>UT Poker 營運儀表板</h1>
+    <input type="password" id="ut-pw" placeholder="請輸入密碼" autocomplete="current-password" aria-label="密碼" required>
+    <p class="err" id="ut-login-err"></p>
+    <button type="submit">登入</button>
+  </form>
+</div>
+<script src="/runtime.js"></script>
+<div id="dash-root" lang="zh-TW">
+<div class="ut-topbar"><span id="ut-loaded">—</span><button type="button" id="ut-refresh">重新整理資料</button><button type="button" id="ut-logout">登出</button></div>
+<style>
+/* Layout: blue header band → live bubbles → automation status strip → three tabs (TLT 賽事 / 月份對比 / 週年慶折抵) */
+/* Always light: the site keeps a light ground in every theme */
+html,body,#dash-root{background:#F4F7FC!important;color-scheme:light}
+#dash-root{--color-fg:#14213D;--color-fg-muted:#5B6478;--color-bg:#F4F7FC;--color-panel:#FFFFFF;--color-border-line:#DCE3EF;
+  --color-ok:#1A8F4E;--color-warn:#B86E00;--color-bad:#C8372D;
+  --cds-text-secondary:#5B6478;--cds-surface-popover:#FFFFFF;--cds-border:#DCE3EF;--cds-shadow-popover:0 6px 20px rgba(20,33,61,.14);
+  --cds-chart-grid:#E7ECF4;--cds-chart-axis:#C3CCDB;color:#14213D}
+.ut{--ut-blue:#1E4FB3;--ut-blue-deep:#173069;--ut-navy:#173069;--ut-ink:#FFFFFF;--ut-soft:color-mix(in srgb,#1F5FD1 13%,transparent);
+  --lv1200:#9DC3FF;--lv3400:#5B97F5;--lv6600:#1F5FD1;--lv11000:#0E9BC4;--lv21500:#6A72D8;
+  --c-issue:#1F5FD1;--c-use:#0E9BC4;
+  font-family:var(--font-anthropic-sans);color:var(--color-fg);display:flex;flex-direction:column;gap:var(--cds-gap-lg);font-variant-numeric:tabular-nums}
+.ut-hero{background:linear-gradient(180deg,#173069,#12275A);border:1px solid #2A4589;color:var(--ut-ink);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);display:flex;flex-direction:column;gap:var(--cds-gap-sm);position:relative;overflow:hidden}
+.ut-hero::after{content:"♠ ♥ ♦ ♣";position:absolute;right:-8px;top:-18px;font-size:88px;letter-spacing:6px;opacity:.05;pointer-events:none;white-space:nowrap}
+.ut-hero-top{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:var(--cds-gap-md)}
+.ut-brand{display:flex;align-items:center;gap:10px}
+.ut-logo{width:64px;height:64px;border-radius:8px;display:block;flex:none}
+.ut-title{font-family:var(--font-anthropic-serif);font-weight:400;font-size:var(--cds-font-size-title);margin:0;text-wrap:balance}
+.ut-eyebrow{font-size:var(--cds-font-size-caption);letter-spacing:.14em;color:#C9D1DE;margin:0}
+.ut-take{margin:0;font-size:var(--cds-font-size-body);line-height:1.6;max-width:68ch;position:relative;z-index:1}
+.ut-take b{font-weight:600}
+.ut-month{display:flex;align-items:center;gap:8px;font-size:var(--cds-font-size-caption);position:relative;z-index:1}
+.ut-hero .dash-select{background-color:var(--ut-ink);color:#173069;border-color:transparent}
+
+.ut-auto{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:var(--cds-gap-md)}
+.ut-card{background:var(--color-panel);border:1px solid var(--color-border-line);border-radius:var(--cds-radius);padding:var(--cds-pad-lg);min-width:0}
+.ut-auto .ut-card{display:flex;flex-direction:column;gap:6px}
+.ut-auto h3{margin:0;font-size:var(--cds-font-size-body);font-weight:var(--cds-font-weight-medium);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;align-items:baseline}
+.ut-time{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);font-weight:400}
+.ut-auto p{margin:0;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);line-height:1.55}
+.ut-stat{font-size:var(--cds-font-size-body)}
+.ut-pill{display:inline-block;padding:1px 9px;border-radius:999px;font-size:var(--cds-font-size-caption);font-weight:600;margin-right:6px;border:1px solid currentColor}
+.ut-pill.ok{color:var(--color-ok)}.ut-pill.warn{color:var(--color-warn)}.ut-pill.na{color:var(--color-fg-muted)}
+
+.ut-tabs{display:flex;gap:4px;border-bottom:1px solid var(--color-border-line)}
+.ut-tab{appearance:none;background:none;border:0;border-bottom:3px solid transparent;padding:10px 14px;font:inherit;font-size:var(--cds-font-size-body);color:var(--color-fg-muted);cursor:pointer;margin-bottom:-1px}
+.ut-tab[aria-selected="true"]{color:var(--ut-blue);border-bottom-color:var(--ut-blue);font-weight:600}
+.ut-tab:focus-visible,.ut-seg button:focus-visible,.ut-chip:focus-visible{outline:2px solid var(--ut-blue);outline-offset:2px}
+
+.ut-sec{display:flex;flex-direction:column;gap:var(--cds-gap-lg)}
+.ut-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:var(--cds-gap-md)}
+.ut-kpi{container-type:inline-size;display:flex;flex-direction:column;gap:4px}
+.ut-kpi .lab{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);letter-spacing:.03em}
+.ut-kpi .val{font-family:var(--font-anthropic-serif);font-weight:400;font-size:min(28px,15cqi);line-height:1.15;white-space:nowrap}
+.ut-kpi .val[data-fmt="nt"]{font-size:min(28px,12cqi)}
+.ut-kpi .sub{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ut-kpi.hl{border-color:var(--ut-blue);background:var(--ut-soft)}
+
+.ut-h{margin:0;font-size:var(--cds-font-size-heading);font-weight:var(--cds-font-weight-medium)}
+.ut-head{display:flex;flex-wrap:wrap;gap:var(--cds-gap-sm);justify-content:space-between;align-items:center;margin-bottom:var(--cds-gap-sm)}
+.ut-seg{display:inline-flex;border:1px solid var(--color-border-line);border-radius:999px;padding:2px}
+.ut-seg button{appearance:none;border:0;background:none;font:inherit;font-size:var(--cds-font-size-caption);padding:4px 12px;border-radius:999px;cursor:pointer;color:var(--color-fg-muted)}
+.ut-seg button.on{background:var(--ut-blue);color:#fff}
+.ut-legend{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:var(--cds-gap-sm)}
+.ut-chip{appearance:none;border:1px solid var(--color-border-line);background:none;border-radius:999px;padding:3px 10px 3px 8px;font:inherit;font-size:var(--cds-font-size-caption);cursor:pointer;display:inline-flex;align-items:center;gap:6px;color:var(--color-fg)}
+.ut-chip i{width:10px;height:10px;border-radius:3px;display:inline-block}
+.ut-chip.off{opacity:.4}
+.ut-chip.off i{background:transparent!important;border:1px solid var(--color-fg-muted)}
+.ut-chart{position:relative;min-height:280px}
+.ut-chart svg text{fill:var(--cds-text-secondary);font-size:11px}
+.ut-chart .grid line{stroke:var(--cds-chart-grid)}
+.ut-chart .grid .domain,.ut-chart .x .domain{display:none}
+.ut-chart .x line{stroke:var(--cds-chart-axis)}
+.ut-tip{position:absolute;pointer-events:none;background:var(--cds-surface-popover);border:1px solid var(--cds-border);box-shadow:var(--cds-shadow-popover);border-radius:8px;padding:8px 10px;font-size:12px;line-height:1.5;min-width:150px;z-index:5}
+.ut-tip b{display:block;margin-bottom:2px}
+.ut-tip .row{display:flex;justify-content:space-between;gap:14px}
+.ut-tip .row span:first-child{display:inline-flex;align-items:center;gap:6px;color:var(--cds-text-secondary)}
+.ut-tip i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.ut-msg{color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);padding:20px 0}
+
+.ut-twrap{overflow-x:auto}
+.ut-table{width:100%;border-collapse:collapse;font-size:13px;white-space:nowrap}
+.ut-table th,.ut-table td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--color-border-line)}
+.ut-table th:first-child,.ut-table td:first-child{text-align:left}
+.ut-table th{font-weight:var(--cds-font-weight-medium);color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+.ut-table td.note{text-align:left;white-space:normal;min-width:240px;color:var(--color-fg-muted);font-size:12px}
+.ut-table td.neg{color:var(--color-bad)}
+.ut-table tbody tr:hover{background:var(--ut-soft)}
+.ut-table .lvdot{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:6px}
+.ut-cap{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted);margin:var(--cds-gap-sm) 0 0;line-height:1.55}
+.ut-bar{height:6px;border-radius:3px;background:var(--color-border-line);overflow:hidden;min-width:60px}
+.ut-bar span{display:block;height:100%;background:var(--ut-blue)}
+.ut-qbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;background:#FFFFFF;border:1px solid var(--color-border-line);border-radius:8px;padding:10px 14px}
+.ut-qbar .ql{font-weight:600;color:#173069;padding-right:6px;border-right:1px solid var(--color-border-line)}
+.ut-qbar .qf{display:flex;align-items:center;gap:8px;font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ut-qbar .qh{font-size:12px;color:var(--color-fg-muted);flex:1 1 220px}
+.ut-input{font:inherit;font-size:14px;color:#14213D;background:#FFFFFF;border:1px solid var(--color-border-line);border-radius:6px;padding:5px 8px;min-width:0}
+.ut-input:focus-visible,.ut-btn:focus-visible{outline:2px solid var(--ut-blue);outline-offset:1px}
+.ut-btn{appearance:none;font:inherit;font-size:13px;border:1px solid #173069;background:#173069;color:#fff;border-radius:6px;padding:6px 12px;cursor:pointer}
+.ut-btn:hover{background:#1E4FB3;border-color:#1E4FB3}
+.ut-day{background:#FFFFFF;border:1px solid var(--color-border-line);border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.ut-daytiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.ut-day .ut-h .pick{color:#A97B2F}
+.ut-ov{display:flex;flex-direction:column;gap:var(--cds-gap-sm)}
+.ut-ovhead{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px}
+.ut-ovsub{font-size:var(--cds-font-size-caption);color:var(--color-fg-muted)}
+.ut-cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,420px),1fr));gap:var(--cds-gap-md)}
+.ut-cat{--cat:#2F6FE4;background:#FFFFFF;border:1px solid var(--color-border-line);border-radius:8px;overflow:hidden;display:flex;flex-direction:column;min-width:0}
+.c-guest{--cat:#2F6FE4}.c-table{--cat:#11809A}.c-coupon{--cat:#A97B2F}.c-profit{--cat:#1E8556}
+.ut-cathd{background:var(--cat);color:#fff;display:flex;align-items:center;gap:10px;padding:10px 14px}
+.ut-cathd .ic{width:26px;height:26px;border-radius:6px;background:rgba(255,255,255,.18);display:grid;place-items:center}
+.ut-cathd svg{width:17px;height:17px;fill:none;stroke:#fff;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.ut-cathd .cn{font-weight:600;font-size:var(--cds-font-size-body)}
+.ut-cathd .ce{margin-left:auto;font-size:11px;letter-spacing:.14em;opacity:.75}
+.ut-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:10px;padding:12px}
+.ut-tile{container-type:inline-size;background:color-mix(in srgb,var(--cat) 6%,#fff);border:1px solid color-mix(in srgb,var(--cat) 20%,#fff);border-radius:6px;padding:10px 12px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.ut-tile .tl{font-size:12px;color:var(--color-fg-muted)}
+.ut-tile .tv{font-family:var(--font-anthropic-serif);font-size:min(24px,15cqi);line-height:1.15;color:#14213D;white-space:nowrap}
+.ut-tile .tv[data-fmt="nt"]{font-size:min(22px,11.5cqi)}
+.ut-tile .td,.ut-tile .ts{font-size:11.5px;line-height:1.35;color:var(--color-fg-muted)}
+.ut-tile .td{font-weight:600}
+.ut-tile .td.up{color:var(--color-ok)}.ut-tile .td.down{color:var(--color-bad)}
+.ut-lvlist{border-top:1px solid var(--color-border-line);padding:8px 12px 12px;display:grid;gap:6px}
+.ut-lv{display:grid;grid-template-columns:62px 1fr 64px 76px;align-items:center;gap:10px;font-size:12.5px}
+.ut-lv .nm{display:flex;align-items:center;gap:6px;font-weight:600}
+.ut-lv .nm i{width:9px;height:9px;border-radius:2px;display:inline-block}
+.ut-lv .br{height:6px;border-radius:3px;background:color-mix(in srgb,var(--cat) 10%,#fff);overflow:hidden}
+.ut-lv .br span{display:block;height:100%;background:var(--cat)}
+.ut-lv .v{text-align:right}
+.ut-lv .d{text-align:right;font-size:11.5px;font-weight:600}
+.ut-lv .d.up{color:var(--color-ok)}.ut-lv .d.down{color:var(--color-bad)}.ut-lv .d.flat{color:var(--color-fg-muted)}
+.ut-lvhd{font-size:11px;color:var(--color-fg-muted)}
+.ut-lvhd .d,.ut-lvhd .v{font-weight:400}
+.ut-gap td .dl{display:block;font-size:11px;font-weight:600}
+.ut-gap td .dl.up{color:var(--color-ok)}.ut-gap td .dl.down{color:var(--color-bad)}.ut-gap td .dl.flat{color:var(--color-fg-muted)}
+.ut-gap td.cur{background:var(--ut-soft)}
+.ut-chart .dot{stroke:#fff;stroke-width:1.5}
+details.ut-notes summary{cursor:pointer;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption)}
+details.ut-notes ul{margin:8px 0 0;padding-left:18px;color:var(--color-fg-muted);font-size:var(--cds-font-size-caption);line-height:1.7}
+@media (prefers-reduced-motion: no-preference){.ut-chart rect.bar{transition:opacity .15s}}
+</style>
+
+<div class="ut">
+  <header class="ut-hero" id="top">
+    <div class="ut-hero-top">
+      <div class="ut-brand">
+        <img class="ut-logo" alt="UT Poker" src="/ut-logo.png">
+        <div>
+          <p class="ut-eyebrow">TLT 限時錦標賽・每日營運</p>
+          <h1 class="ut-title">UT Poker 營運儀表板</h1>
+        </div>
+      </div>
+    </div>
+    <p class="ut-take" id="takeaway">
+      本月已填報 <b data-draw="kpi" data-fmt="int" data-source="tlt_summary" data-field="days" data-row="0">—</b> 天，日均開 <b data-draw="kpi" data-fmt="f1" data-source="tlt_summary" data-field="avgTables" data-row="0">—</b> 場、
+      收益每天約 <b data-draw="kpi" data-fmt="nt" data-source="tlt_summary" data-field="avgInc" data-row="0">—</b>。
+      週年慶全免折抵至今發出 <b data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="issued" data-row="0">—</b> 張、已使用 <b data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="used" data-row="0">—</b> 張。
+    </p>
+  </header>
+
+  <section class="ut-qbar" id="query" aria-label="查詢">
+    <span class="ql">查詢</span>
+    <label class="qf" for="ut-day">日期 <input type="date" id="ut-day" class="ut-input" data-draw="daypick" aria-label="查詢日期"></label>
+    <label class="qf" for="ut-month">月份 <select class="dash-select" id="ut-month" aria-label="查詢月份"><option value="3">3 月</option><option value="4">4 月</option><option value="5">5 月</option><option value="6">6 月</option><option value="7">7 月</option><option value="8">8 月</option><option value="9">9 月</option><option value="10">10 月</option><option value="11">11 月</option><option value="12">12 月</option></select></label>
+    <button type="button" class="ut-btn" id="ut-latest">回到前一日</button>
+    <span class="qh">選日期看單日概況；選月份切換下方「TLT 賽事」分頁的月份。</span>
+  </section>
+
+  <section class="ut-day" id="day" aria-label="單日概況">
+    <div class="ut-ovhead"><h2 class="ut-h"><span data-draw="daytitle">—</span></h2><span class="ut-ovsub">箭頭為與當月日均相比</span></div>
+    <div class="ut-daytiles"><div class="ut-tile c-table"><span class="tl">場次</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="day_info" data-field="tables" data-row="0">—</span><span class="td" data-draw="dayd" data-field="dTables">—</span></div><div class="ut-tile c-guest"><span class="tl">報名人次</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="day_info" data-field="people" data-row="0">—</span><span class="td" data-draw="dayd" data-field="dPeople">—</span></div><div class="ut-tile c-guest"><span class="tl">不重複客人</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="day_info" data-field="unique" data-row="0">—</span><span class="td" data-draw="dayd" data-field="dUnique">—</span><span class="ts" data-draw="dayunote">—</span></div><div class="ut-tile c-profit"><span class="tl">收益</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="day_info" data-field="inc" data-row="0">—</span><span class="td" data-draw="dayd" data-field="dInc">—</span><span class="ts" data-draw="dayinote">—</span></div><div class="ut-tile c-profit"><span class="tl">行政費應收</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="day_info" data-field="fee" data-row="0">—</span><span class="ts">人次 × 行政費，未扣折抵</span></div><div class="ut-tile c-coupon"><span class="tl">折抵券使用</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="day_info" data-field="used" data-row="0">—</span><span class="ts">發送 <span data-draw="kpi" data-fmt="int" data-source="day_info" data-field="issued" data-row="0">—</span> 張・折抵 <span data-draw="kpi" data-fmt="nt" data-source="day_info" data-field="usedAmt" data-row="0">—</span></span></div></div>
+    <div class="ut-twrap">
+      <table class="ut-table" data-source="day_levels" data-row-key="level">
+        <thead><tr><th data-field="level">級別</th><th data-field="tables">場次</th><th data-field="people">報名人次</th><th data-field="unique">不重複客人</th><th data-field="perTable">每場人次</th><th data-field="fee">行政費應收</th></tr></thead>
+        <tbody data-draw="daylevels"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="ut-ov" id="now" aria-label="本月現況">
+    <div class="ut-ovhead"><h2 class="ut-h">本月現況</h2><span class="ut-ovsub">資料至 <span data-draw="nowtxt">—</span>；箭頭為與上月日均相比</span></div>
+    <div class="ut-cats">
+      <div class="ut-cat c-guest" id="cat-guest">
+        <div class="ut-cathd"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c.8-3.6 3.4-5.5 6.5-5.5s5.7 1.9 6.5 5.5"/><circle cx="17" cy="9" r="2.6"/><path d="M16 14.6c2.8-.2 4.9 1.5 5.5 4.6"/></svg></span><span class="cn">客人</span></div>
+        <div class="ut-tiles"><div class="ut-tile"><span class="tl">日均不重複客人</span><span class="tv" data-draw="kpi" data-fmt="f0" data-source="month_now" data-field="avgUnique" data-row="0">—</span><span class="td" data-draw="nowd" data-field="dUnique" data-source="month_now">—</span><span class="ts" data-draw="unote">—</span></div><div class="ut-tile"><span class="tl">昨日不重複客人</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="month_now" data-field="lastUnique" data-row="0">—</span><span class="ts"><span data-draw="lastday">—</span></span></div><div class="ut-tile"><span class="tl">每人平均報名</span><span class="tv" data-draw="kpi" data-fmt="f1" data-source="month_now" data-field="perGuest" data-row="0">—</span><span class="ts">報名人次 ÷ 不重複客人</span></div><div class="ut-tile"><span class="tl">日均報名人次</span><span class="tv" data-draw="kpi" data-fmt="f0" data-source="month_now" data-field="avgPeople" data-row="0">—</span><span class="td" data-draw="nowd" data-field="dPeople" data-source="month_now">—</span><span class="ts">含重購、再入</span></div></div>
+        <div class="ut-lvlist" data-draw="lvlist" data-kind="P" data-source="level_now"></div>
+      </div>
+      <div class="ut-cat c-table" id="cat-table">
+        <div class="ut-cathd"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="12" rx="9.5" ry="6"/><ellipse cx="12" cy="12" rx="5.5" ry="3"/></svg></span><span class="cn">場次</span></div>
+        <div class="ut-tiles"><div class="ut-tile"><span class="tl">日均場次</span><span class="tv" data-draw="kpi" data-fmt="f1" data-source="month_now" data-field="avgTables" data-row="0">—</span><span class="td" data-draw="nowd" data-field="dTables" data-source="month_now">—</span></div><div class="ut-tile"><span class="tl">本月總場次</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="month_now" data-field="tables" data-row="0">—</span><span class="ts">已填報天數合計</span></div><div class="ut-tile"><span class="tl">昨日場次</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="month_now" data-field="lastTables" data-row="0">—</span><span class="ts"><span data-draw="lastday">—</span></span></div></div>
+        <div class="ut-lvlist" data-draw="lvlist" data-kind="T" data-source="level_now"></div>
+      </div>
+      <div class="ut-cat c-coupon" id="cat-coupon">
+        <div class="ut-cathd"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v3a2 2 0 0 0 0 4v3H3v-3a2 2 0 0 0 0-4z"/><path d="M14 7v10" stroke-dasharray="2 2"/></svg></span><span class="cn">優惠券</span></div>
+        <div class="ut-tiles"><div class="ut-tile"><span class="tl">有效發送</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="issued" data-row="0">—</span><span class="ts">額度 <span data-draw="kpi" data-fmt="nt" data-source="coupon_summary" data-field="issuedAmt" data-row="0">—</span></span></div><div class="ut-tile"><span class="tl">已使用</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="used" data-row="0">—</span><span class="ts">折抵 <span data-draw="kpi" data-fmt="nt" data-source="coupon_summary" data-field="usedAmt" data-row="0">—</span></span></div><div class="ut-tile"><span class="tl">使用率</span><span class="tv" data-draw="kpi" data-fmt="pct" data-source="coupon_summary" data-field="rate" data-row="0">—</span><span class="ts">已使用 ÷ 有效發送</span></div><div class="ut-tile"><span class="tl">刪除張數</span><span class="tv" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="deleted" data-row="0">—</span><span class="ts">不計入發送</span></div></div>
+      </div>
+      <div class="ut-cat c-profit" id="cat-income">
+        <div class="ut-cathd"><span class="ic"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg></span><span class="cn">收益</span></div>
+        <div class="ut-tiles"><div class="ut-tile"><span class="tl">本月累計收益</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="month_now" data-field="inc" data-row="0">—</span><span class="ts" data-draw="incnote">—</span></div><div class="ut-tile"><span class="tl">日均收益</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="month_now" data-field="avgInc" data-row="0">—</span><span class="td" data-draw="nowd" data-field="dInc" data-source="month_now">—</span></div><div class="ut-tile"><span class="tl">月底預估</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="month_now" data-field="proj" data-row="0">—</span><span class="ts">日均收益 × 當月天數</span></div><div class="ut-tile"><span class="tl">每小時收益</span><span class="tv" data-draw="kpi" data-fmt="nt" data-source="month_now" data-field="perHour" data-row="0">—</span><span class="ts">依營業時數計</span></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="ut-auto" id="automation" aria-label="每日自動填報">
+    <div class="ut-card" id="auto-tlt">
+      <h3>每日 TLT 賽事數據填報 <span class="ut-time">每天 07:05（台北）</span></h3>
+      <div class="ut-stat" data-draw="auto" data-kind="tlt" data-source="tlt_summary" data-field="last" data-row="0">—</div>
+      <p>從 TexasVip 後台「錦標賽匯總表」抓前一天 12:00～今天 07:00 的賽事，依 1200／3400／6600／11000／21500 分級統計場次與人次（含重購、增購、再入），寫入「每日報表」當月分頁。</p>
+    </div>
+    <div class="ut-card" id="auto-coupon">
+      <h3>週年慶全免折抵每日填報 <span class="ut-time">每天 07:20（台北）</span></h3>
+      <div class="ut-stat" data-draw="auto" data-kind="coupon" data-source="coupon_summary" data-field="last" data-row="0">—</div>
+      <p>從後台「優惠券明細表」統計前一天 12:00～今天 05:00 的週年慶券：發送量（排除已刪除）、使用量，以及區間外發送與跨級別使用的備註，寫入「週年慶全免折抵報表」。</p>
+    </div>
+  </section>
+
+  <div class="ut-tabs" role="tablist" aria-label="報表">
+    <button class="ut-tab" role="tab" id="tab-tlt" data-tab="tlt" aria-selected="true">TLT 賽事</button>
+    <button class="ut-tab" role="tab" id="tab-compare" data-tab="compare" aria-selected="false">月份對比</button>
+    <button class="ut-tab" role="tab" id="tab-coupon"data-tab="coupon" aria-selected="false">週年慶全免折抵</button>
+  </div>
+
+  <!-- TLT -->
+  <section class="ut-sec" id="tlt" role="tabpanel" aria-labelledby="tab-tlt">
+    <div class="ut-kpis" id="tlt-kpis">
+      <div class="ut-card ut-kpi hl"><span class="lab">收益（本月累計）</span><span class="val" data-draw="kpi" data-fmt="nt" data-source="tlt_summary" data-field="inc" data-row="0">—</span><span class="sub">後台行政費櫃檯，<span data-draw="kpi" data-fmt="int" data-source="tlt_summary" data-field="incDays" data-row="0">—</span> 天</span></div>
+      <div class="ut-card ut-kpi"><span class="lab">每日收益</span><span class="val" data-draw="kpi" data-fmt="nt" data-source="tlt_summary" data-field="avgInc" data-row="0">—</span><span class="sub">每小時 <span data-draw="kpi" data-fmt="nt" data-source="tlt_summary" data-field="perHour" data-row="0">—</span></span></div>
+      <div class="ut-card ut-kpi"><span class="lab">總場次</span><span class="val" data-draw="kpi" data-fmt="int" data-source="tlt_summary" data-field="tables" data-row="0">—</span><span class="sub">日均 <span data-draw="kpi" data-fmt="f1" data-source="tlt_summary" data-field="avgTables" data-row="0">—</span> 場</span></div>
+      <div class="ut-card ut-kpi"><span class="lab">總報名人次</span><span class="val" data-draw="kpi" data-fmt="int" data-source="tlt_summary" data-field="people" data-row="0">—</span><span class="sub">日均 <span data-draw="kpi" data-fmt="f1" data-source="tlt_summary" data-field="avgPeople" data-row="0">—</span> 人次</span></div>
+      <div class="ut-card ut-kpi"><span class="lab">行政費應收</span><span class="val" data-draw="kpi" data-fmt="nt" data-source="tlt_summary" data-field="fee" data-row="0">—</span><span class="sub">人次 × 行政費，未扣折抵</span></div>
+    </div>
+
+    <div class="ut-card" id="tlt-daily-chart">
+      <div class="ut-head">
+        <h2 class="ut-h">每日走勢（依級別堆疊）</h2>
+        <div class="ut-seg" role="group" aria-label="指標" id="tlt-metric">
+          <button type="button" data-metric="tables" class="on">場次</button>
+          <button type="button" data-metric="people">人次</button>
+          <button type="button" data-metric="revenue">行政費應收</button>
+        </div>
+      </div>
+      <div class="ut-legend" id="tlt-legend">
+        <button type="button" class="ut-chip" data-level="1200"><i style="background:var(--lv1200)"></i>1200</button>
+        <button type="button" class="ut-chip" data-level="3400"><i style="background:var(--lv3400)"></i>3400</button>
+        <button type="button" class="ut-chip" data-level="6600"><i style="background:var(--lv6600)"></i>6600</button>
+        <button type="button" class="ut-chip" data-level="11000"><i style="background:var(--lv11000)"></i>11000</button>
+        <button type="button" class="ut-chip" data-level="21500"><i style="background:var(--lv21500)"></i>21500</button>
+      </div>
+      <div class="ut-chart" data-draw="tltchart" data-source="tlt tlt_days"></div>
+      <p class="ut-cap">點級別可隱藏／顯示；滑過長條看當天明細。尚未填報的日期留白。</p>
+    </div>
+
+    <div class="ut-card" id="tlt-levels">
+      <h2 class="ut-h">級別表現</h2>
+      <div class="ut-twrap">
+        <table class="ut-table" data-source="tlt_levels" data-row-key="level">
+          <thead><tr><th data-field="level">級別</th><th data-field="tables">場次</th><th data-field="perDay">日均場次</th><th data-field="people">人次</th><th data-field="avgSize">每場人次</th><th data-field="fee">行政費應收</th></tr></thead>
+          <tbody data-draw="levels"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="ut-card" id="tlt-days">
+      <h2 class="ut-h">每日明細</h2>
+      <div class="ut-twrap">
+        <table class="ut-table" data-source="tlt" data-row-key="date">
+          <thead><tr><th data-field="day">日期</th><th data-field="weekday">星期</th><th data-field="t1200">1200</th><th data-field="t3400">3400</th><th data-field="t6600">6600</th><th data-field="t11000">11000</th><th data-field="t21500">21500</th><th data-source="tlt_days" data-field="tables">總場次</th><th data-source="tlt_days" data-field="people">總人次</th><th data-field="uAll">不重複客人</th><th data-source="tlt_days" data-field="fee">行政費應收</th><th data-field="inc">收益</th></tr></thead>
+          <tbody data-draw="tltdays"></tbody>
+        </table>
+      </div>
+      <p class="ut-cap">各級別欄位為場次。星期依實際日期計算。</p>
+    </div>
+  </section>
+
+  <!-- Month comparison -->
+  <section class="ut-sec" id="compare" role="tabpanel" aria-labelledby="tab-compare" hidden>
+    <div class="ut-card" id="compare-chart">
+      <div class="ut-head">
+        <h2 class="ut-h">各級別逐月走勢</h2>
+        <div class="ut-seg" role="group" aria-label="比較指標" id="m-metric">
+          <button type="button" data-mmetric="avgT" class="on">日均場次</button>
+          <button type="button" data-mmetric="avgU">日均不重複客人</button>
+          <button type="button" data-mmetric="avgP">日均人次</button>
+          <button type="button" data-mmetric="avgR">日均行政費應收</button>
+          <button type="button" data-mmetric="totP">月總人次</button>
+        </div>
+      </div>
+      <div class="ut-legend" id="m-legend">
+        <button type="button" class="ut-chip" data-mlevel="all"><i style="background:#14213D"></i>全部級別</button>
+        <button type="button" class="ut-chip" data-mlevel="1200"><i style="background:var(--lv1200)"></i>1200</button>
+        <button type="button" class="ut-chip" data-mlevel="3400"><i style="background:var(--lv3400)"></i>3400</button>
+        <button type="button" class="ut-chip" data-mlevel="6600"><i style="background:var(--lv6600)"></i>6600</button>
+        <button type="button" class="ut-chip" data-mlevel="11000"><i style="background:var(--lv11000)"></i>11000</button>
+        <button type="button" class="ut-chip" data-mlevel="21500"><i style="background:var(--lv21500)"></i>21500</button>
+      </div>
+      <div class="ut-chart" data-draw="mchart" data-source="monthly"></div>
+      <p class="ut-cap">本月尚未結束，所以預設比較「日均」；月總人次的本月數字只到最後填報日。點級別可隱藏／顯示，滑過月份看各級別數值。</p>
+    </div>
+
+    <div class="ut-card" id="compare-gap">
+      <h2 class="ut-h">各級別月差距</h2>
+      <div class="ut-twrap">
+        <table class="ut-table ut-gap" data-source="monthly">
+          <thead data-draw="gaphead"></thead>
+          <tbody data-draw="gapbody"></tbody>
+        </table>
+      </div>
+      <p class="ut-cap">每格下方是與前一個月相比的增減；指標跟著上方切換。21500 級別從 8 月才開始記錄。</p>
+    </div>
+  </section>
+
+  <!-- Coupons -->
+  <section class="ut-sec" id="coupon" role="tabpanel" aria-labelledby="tab-coupon" hidden>
+    <div class="ut-kpis" id="coupon-kpis">
+      <div class="ut-card ut-kpi hl"><span class="lab">有效發送</span><span class="val" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="issued" data-row="0">—</span><span class="sub">折抵額度 <span data-draw="kpi" data-fmt="nt" data-source="coupon_summary" data-field="issuedAmt" data-row="0">—</span></span></div>
+      <div class="ut-card ut-kpi"><span class="lab">已使用</span><span class="val" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="used" data-row="0">—</span><span class="sub">折抵金額 <span data-draw="kpi" data-fmt="nt" data-source="coupon_summary" data-field="usedAmt" data-row="0">—</span></span></div>
+      <div class="ut-card ut-kpi"><span class="lab">使用率</span><span class="val" data-draw="kpi" data-fmt="pct" data-source="coupon_summary" data-field="rate" data-row="0">—</span><span class="sub">已使用 ÷ 有效發送</span></div>
+      <div class="ut-card ut-kpi"><span class="lab">刪除張數</span><span class="val" data-draw="kpi" data-fmt="int" data-source="coupon_summary" data-field="deleted" data-row="0">—</span><span class="sub">不計入發送量</span></div>
+    </div>
+
+    <div class="ut-card" id="coupon-daily-chart">
+      <div class="ut-head">
+        <h2 class="ut-h">每日發送與使用</h2>
+        <div class="ut-seg" role="group" aria-label="單位" id="coupon-metric">
+          <button type="button" data-cmetric="count" class="on">張數</button>
+          <button type="button" data-cmetric="amount">折抵金額</button>
+        </div>
+      </div>
+      <div class="ut-legend">
+        <span class="ut-chip" style="cursor:default"><i style="background:var(--c-issue)"></i>有效發送</span>
+        <span class="ut-chip" style="cursor:default"><i style="background:var(--c-use)"></i>已使用</span>
+      </div>
+      <div class="ut-chart" data-draw="cchart" data-source="coupon_daily"></div>
+    </div>
+
+    <div class="ut-card" id="coupon-levels">
+      <h2 class="ut-h">各級別券</h2>
+      <div class="ut-twrap">
+        <table class="ut-table" data-source="coupon_levels" data-row-key="level">
+          <thead><tr><th data-field="level">券別</th><th data-field="issued">有效發送</th><th data-field="used">已使用</th><th data-field="rate">使用率</th><th></th><th data-field="usedAmt">折抵金額</th><th data-field="entries">同期報名人次</th><th data-field="share">折抵占報名</th></tr></thead>
+          <tbody data-draw="clevels"></tbody>
+        </table>
+      </div>
+      <p class="ut-cap">「同期報名人次」取 TLT 報表中有折抵使用紀錄那幾天、同級別的人次；月份選單需選到同一個月才算得出來。</p>
+    </div>
+
+    <div class="ut-card" id="coupon-days">
+      <h2 class="ut-h">每日明細與備註</h2>
+      <div class="ut-twrap">
+        <table class="ut-table" data-source="coupon_daily" data-row-key="date">
+          <thead><tr><th data-field="day">日期</th><th data-field="issued">發送</th><th data-field="issuedAmt">發送額度</th><th data-field="deleted">刪除</th><th data-field="used">使用</th><th data-field="usedAmt">折抵金額</th><th data-field="notes">備註</th></tr></thead>
+          <tbody data-draw="cdays"></tbody>
+        </table>
+      </div>
+      <p class="ut-cap">每天 12:00～隔日 05:00 算一天。發送依「發放時間」、使用依「使用時間」統計，所以同一天的使用不一定來自當天發出的券。</p>
+    </div>
+  </section>
+
+  <details class="ut-notes" id="notes">
+    <summary>計算方式</summary>
+    <ul>
+      <li>收益＝後台交班報表「行政費」那一列的「櫃檯」金額（例如 11/19 為 73,100），也就是已扣掉優惠券、活動折抵，以及用分數、點數支付的部分。資料記在月報表 Y 欄「行政費櫃檯」。</li>
+      <li>後台以交班時間為準：當天 12:00 第一場到隔天 07:00。</li>
+      <li>日均收益只除以有後台收益的天數；還沒抄錄後台收益的日子不計入。</li>
+      <li>行政費應收＝各級別人次 × 行政費（1200：200、3400：400、6600：600、11000：1000、21500：1500），未扣任何折抵，只用來看各級別貢獻。</li>
+      <li>盈餘受店內限時行銷等額外提撥影響，儀表板不計算。</li>
+      <li>折抵金額：1200 券 200、3400 券 400、6600 券 600、11000 券 1000，讀自折抵報表第 3 列。</li>
+    </ul>
+  </details>
+</div>
+
+<script>
+(function () {
+  const LV = [1200, 3400, 6600, 11000, 21500];
+  const CLV = [1200, 3400, 6600, 11000];
+  const MONTHS = ['3', '4', '5', '6', '7', '8', '9', '10', '11', '12'];
+
+  // Open on the current Taipei month
+  const tp = new Date(Date.now() + 8 * 3600e3);
+  const curMonth = String(tp.getUTCMonth() + 1);
+  if (MONTHS.includes(curMonth) && dash.params().month !== curMonth) dash.setParams({ month: curMonth });
+
+  // ---------- loaders ----------
+  dash.loader('coupon_issue', {
+    description: '讀「總發送量」：第 3 列是每張折抵金額，第 6 列起每天一列（各級別張數、刪除張數、備註）。',
+    fn: ({ answer }) => {
+      const v = (answer && answer.values) || [];
+      const num = (x) => { if (x == null) return null; const s = String(x).replace(/[^0-9.\-]/g, ''); return s === '' ? null : Number(s); };
+      const lv = [1200, 3400, 6600, 11000];
+      const wk = '日一二三四五六';
+      const rows = [];
+      v.slice(3).forEach((a) => {
+        const d = String(a[0] || '').match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+        if (!d) return;
+        const dt = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3]));
+        const r = { date: d[1] + '-' + d[2].padStart(2, '0') + '-' + d[3].padStart(2, '0'), day: (+d[2]) + '/' + (+d[3]) + '（' + wk[dt.getUTCDay()] + '）' };
+        let any = false;
+        lv.forEach((L, i) => { const c = num(a[1 + i]); if (c != null) any = true; r['c' + L] = c || 0; r['v' + L] = num((v[0] || [])[1 + i]) || 0; });
+        r.deleted = num(a[7]) || 0;
+        r.note = String(a[8] || '');
+        if (any) rows.push(r);
+      });
+      return rows;
+    }
+  });
+
+  dash.loader('coupon_use', {
+    description: '讀「使用量」：第 3 列是每張折抵金額，第 6 列起每天一列（各級別已使用張數、備註）。',
+    fn: ({ answer }) => {
+      const v = (answer && answer.values) || [];
+      const num = (x) => { if (x == null) return null; const s = String(x).replace(/[^0-9.\-]/g, ''); return s === '' ? null : Number(s); };
+      const lv = [1200, 3400, 6600, 11000];
+      const wk = '日一二三四五六';
+      const rows = [];
+      v.slice(3).forEach((a) => {
+        const d = String(a[0] || '').match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+        if (!d) return;
+        const dt = new Date(Date.UTC(+d[1], +d[2] - 1, +d[3]));
+        const r = { date: d[1] + '-' + d[2].padStart(2, '0') + '-' + d[3].padStart(2, '0'), day: (+d[2]) + '/' + (+d[3]) + '（' + wk[dt.getUTCDay()] + '）' };
+        let any = false;
+        lv.forEach((L, i) => { const c = num(a[1 + i]); if (c != null) any = true; r['c' + L] = c || 0; r['v' + L] = num((v[0] || [])[1 + i]) || 0; });
+        r.note = String(a[7] || '');
+        if (any) rows.push(r);
+      });
+      return rows;
+    }
+  });
+
+  // ---------- calcs ----------
+  dash.calc('tlt_days', {
+    inputs: ['tlt'], title: '每日收益',
+    description: '已填報的每一天：收益＝後台行政費櫃檯（Y 欄，沒抄錄的日子是空白）；行政費應收＝Σ 人次×行政費（未扣折抵）。',
+    fn: (tlt) => {
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      return tlt.filter((r) => r.filled).map((r) => {
+        let tables = 0, people = 0, fee = 0;
+        lv.forEach((L) => { tables += r['t' + L]; people += r['p' + L]; fee += r['p' + L] * r['fee' + L]; });
+        return { date: r.date, day: r.day, tables, people, fee, inc: r.inc, hours: r.hours || 17 };
+      });
+    }
+  });
+
+  dash.calc('tlt_summary', {
+    inputs: ['tlt_days'], title: '本月 TLT 合計',
+    description: '已填報天數的場次、人次合計與日均；收益只加總有後台收益的天數，日均收益也只除以那些天，每小時收益再除以營業時數。',
+    fn: (days) => {
+      const n = days.length;
+      const s = (k) => days.reduce((a, r) => a + r[k], 0);
+      const withInc = days.filter((r) => r.inc != null);
+      const inc = withInc.reduce((a, r) => a + r.inc, 0);
+      const avgInc = withInc.length ? inc / withInc.length : null;
+      return [{ days: n, tables: s('tables'), people: s('people'), fee: s('fee'),
+        avgTables: n ? s('tables') / n : null, avgPeople: n ? s('people') / n : null,
+        incDays: withInc.length, inc: withInc.length ? inc : null, avgInc,
+        perHour: avgInc != null ? avgInc / (days[0].hours || 17) : null, last: n ? days[n - 1].date : null }];
+    }
+  });
+
+  dash.calc('tlt_levels', {
+    inputs: ['tlt'], title: '本月各級別',
+    description: '各級別在已填報天數中的場次、人次與行政費應收（人次×行政費，未扣折抵；後台收益沒有分級別）。',
+    fn: (tlt) => {
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      const f = tlt.filter((r) => r.filled);
+      const n = f.length;
+      return lv.map((L) => {
+        const tables = f.reduce((a, r) => a + r['t' + L], 0);
+        const people = f.reduce((a, r) => a + r['p' + L], 0);
+        const fee = f.reduce((a, r) => a + r['p' + L] * r['fee' + L], 0);
+        return { level: String(L), tables, people, perDay: n ? tables / n : null, avgSize: tables ? people / tables : null, fee };
+      });
+    }
+  });
+
+  dash.calc('coupon_daily', {
+    inputs: ['coupon_issue', 'coupon_use'], title: '折抵每日彙整',
+    description: '依日期合併發送與使用：張數、折抵金額（張數×每張折抵）、刪除張數與兩頁的備註。',
+    fn: (issue, use) => {
+      const lv = [1200, 3400, 6600, 11000];
+      const by = new Map();
+      const get = (r) => { if (!by.has(r.date)) by.set(r.date, { date: r.date, day: r.day, issued: 0, issuedAmt: 0, deleted: 0, used: 0, usedAmt: 0, notes: '' }); return by.get(r.date); };
+      issue.forEach((r) => { const o = get(r); lv.forEach((L) => { o['i' + L] = r['c' + L]; o.issued += r['c' + L]; o.issuedAmt += r['c' + L] * r['v' + L]; }); o.deleted = r.deleted; if (r.note) o.notes += '發送：' + r.note; });
+      use.forEach((r) => { const o = get(r); lv.forEach((L) => { o['u' + L] = r['c' + L]; o.used += r['c' + L]; o.usedAmt += r['c' + L] * r['v' + L]; }); if (r.note) o.notes += (o.notes ? '\n' : '') + '使用：' + r.note; });
+      return [...by.values()].sort((a, b) => a.date < b.date ? -1 : 1);
+    }
+  });
+
+  dash.calc('coupon_summary', {
+    inputs: ['coupon_daily'], title: '折抵合計',
+    description: '週年慶期間的有效發送、使用、刪除合計與使用率（已使用÷有效發送）。',
+    fn: (days) => {
+      const s = (k) => days.reduce((a, r) => a + r[k], 0);
+      const issued = s('issued'), used = s('used');
+      return [{ days: days.length, issued, issuedAmt: s('issuedAmt'), used, usedAmt: s('usedAmt'), deleted: s('deleted'), rate: issued ? used / issued : null, last: days.length ? days[days.length - 1].date : null }];
+    }
+  });
+
+  dash.calc('coupon_levels', {
+    inputs: ['coupon_issue', 'coupon_use', 'tlt'], title: '折抵各級別',
+    description: '各券別發送、使用、使用率、折抵金額；同期報名人次＝TLT 報表中有使用紀錄的日期、同級別人次合計（月份須相同）。',
+    fn: (issue, use, tlt) => {
+      const lv = [1200, 3400, 6600, 11000];
+      const useDates = new Set(use.map((r) => r.date));
+      const tl = tlt.filter((r) => r.filled && useDates.has(r.date));
+      return lv.map((L) => {
+        const issued = issue.reduce((a, r) => a + r['c' + L], 0);
+        const used = use.reduce((a, r) => a + r['c' + L], 0);
+        const usedAmt = use.reduce((a, r) => a + r['c' + L] * r['v' + L], 0);
+        const entries = tl.length ? tl.reduce((a, r) => a + r['p' + L], 0) : null;
+        return { level: String(L), issued, used, rate: issued ? used / issued : null, usedAmt, entries, share: entries ? used / entries : null };
+      });
+    }
+  });
+
+  // ---------- every month, for comparison ----------
+  const MON = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const monthLoader = ({ answer, args }) => {
+    const v = (answer && answer.values) || [];
+    const num = (x) => { if (x == null) return null; const s = String(x).replace(/[^0-9.\-]/g, ''); return s === '' ? null : Number(s); };
+    const lv = [1200, 3400, 6600, 11000, 21500];
+    const m = Number((String(args.range).match(/(\d+)月/) || [])[1]);
+    const now = new Date(Date.now() + 8 * 3600e3);
+    const y = m > now.getUTCMonth() + 1 ? now.getUTCFullYear() - 1 : now.getUTCFullYear();
+    const dim = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const hi = v.findIndex((r) => (r || []).some((c) => String(c).trim() === '日期與級別'));
+    if (hi < 0) throw new Error('找不到「日期與級別」表頭列');
+    const head = v[hi];
+    const fi = head.findIndex((c) => String(c).trim() === '行政費');
+    const levels = [];
+    head.forEach((c, i) => { const n = num(c); if (lv.includes(n) && (fi < 0 || i < fi)) levels.push([n, i]); });
+    const hours = fi >= 0 ? num((v[0] || [])[fi]) : null;
+    const ui = head.findIndex((c) => String(c).trim() === '全館');
+    const ii = head.findIndex((c) => String(c).trim() === '行政費櫃檯');
+    const wk = '日一二三四五六';
+    const rows = [];
+    v.slice(hi + 1).forEach((a) => {
+      const di = (a || []).findIndex((c) => /^\d{1,2}\/\d{1,2}$/.test(String(c).trim()));
+      if (di < 0 || di > 2) return;
+      const [mm, dd] = String(a[di]).trim().split('/').map(Number);
+      const r = { month: m, ym: y + '-' + String(m).padStart(2, '0'), dim, hours,
+        date: y + '-' + String(mm).padStart(2, '0') + '-' + String(dd).padStart(2, '0'),
+        day: mm + '/' + dd, weekday: wk[new Date(Date.UTC(y, mm - 1, dd)).getUTCDay()], filled: false };
+      lv.forEach((L) => { r['t' + L] = 0; r['p' + L] = 0; r['fee' + L] = 0; });
+      levels.forEach(([L, i], k) => {
+        const pi = fi + 1 + k;
+        const t = num(a[i]), p = num(a[pi]);
+        if (t != null || p != null) r.filled = true;
+        r['t' + L] = t || 0; r['p' + L] = p || 0; r['fee' + L] = num(head[pi]) || 0;
+      });
+      r.uAll = ui >= 0 ? num(a[ui]) : null;
+      lv.forEach((L, j) => { r['u' + L] = ui >= 0 ? num(a[ui + 1 + j]) : null; });
+      r.inc = ii >= 0 ? num(a[ii]) : null;
+      rows.push(r);
+    });
+    return rows;
+  };
+  dash.loader('tlt', {
+    description: '依表頭「日期與級別」那一列找出所選月份的場次欄、人次欄與不重複客人欄（3–7 月與 8 月後欄位位置不同），每天一列。',
+    fn: monthLoader
+  });
+  MON.forEach((m) => dash.loader('tlt_m' + m, {
+    description: '依表頭「日期與級別」那一列自動找出各級別的場次欄與人次欄（各月份欄位位置不同），以及表頭為「全館」起的不重複客人欄，每天一列。',
+    fn: monthLoader
+  }));
+
+  dash.calc('monthly', {
+    inputs: MON.map((m) => 'tlt_m' + m), title: '逐月彙整',
+    description: '每個月只算已填報的天數：各級別總場次、總人次、行政費收益與日均；收益只計有後台行政費櫃檯數字的天數。不重複客人的日均只除以有統計不重複客人的天數；每人平均報名＝那些天的人次 ÷ 不重複客人。',
+    fn: (...months) => {
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      const sub = { 1200: 400, 3400: 800, 6600: 1200, 11000: 2000, 21500: 2800 };
+      return months.map((rows) => {
+        const f = (rows || []).filter((r) => r.filled);
+        if (!f.length) return null;
+        const n = f.length, last = f[n - 1];
+        const o = { month: f[0].month + '月', m: f[0].month, ym: f[0].ym, days: n, dim: f[0].dim, lastDate: last.date, lastDay: last.day + '（' + last.weekday + '）', tables: 0, people: 0, revenue: 0 };
+        lv.forEach((L) => {
+          const t = f.reduce((a, r) => a + r['t' + L], 0), p = f.reduce((a, r) => a + r['p' + L], 0), rv = f.reduce((a, r) => a + r['p' + L] * r['fee' + L], 0);
+          o['t' + L] = t; o['p' + L] = p; o['r' + L] = rv;
+          o['avgT' + L] = t / n; o['avgP' + L] = p / n; o['avgR' + L] = rv / n;
+          o.tables += t; o.people += p; o.revenue += rv;
+        });
+        o.hours = f[0].hours || 17;
+        const fi = f.filter((r) => r.inc != null);
+        o.incDays = fi.length;
+        o.inc = fi.length ? fi.reduce((a, r) => a + r.inc, 0) : null;
+        o.avgInc = fi.length ? o.inc / fi.length : null;
+        o.lastInc = last.inc;
+        const fu = f.filter((r) => r.uAll != null);
+        o.uDays = fu.length;
+        o.avgU = fu.length ? fu.reduce((a, r) => a + r.uAll, 0) / fu.length : null;
+        const fuP = fu.reduce((a, r) => a + lv.reduce((b, L) => b + r['p' + L], 0), 0), fuU = fu.reduce((a, r) => a + r.uAll, 0);
+        o.perGuest = fuU ? fuP / fuU : null;
+        lv.forEach((L) => { o['avgU' + L] = fu.length ? fu.reduce((a, r) => a + (r['u' + L] || 0), 0) / fu.length : null; });
+        o.lastUnique = last.uAll;
+        o.avgT = o.tables / n; o.avgP = o.people / n; o.avgR = o.revenue / n;
+        o.lastTables = lv.reduce((a, L) => a + last['t' + L], 0);
+        o.lastPeople = lv.reduce((a, L) => a + last['p' + L], 0);
+        return o;
+      }).filter(Boolean).sort((a, b) => a.ym < b.ym ? -1 : 1);
+    }
+  });
+
+  dash.calc('month_now', {
+    inputs: ['monthly'], title: '本月現況',
+    description: '最近一個有資料的月份；增減＝本月日均 ÷ 上月日均 − 1；收益＝後台行政費櫃檯，月底預估＝日均收益 × 當月天數；每小時＝日均收益 ÷ 試算表的營業時數。',
+    fn: (monthly) => {
+      const cur = monthly[monthly.length - 1], prev = monthly[monthly.length - 2];
+      if (!cur) return [];
+      const ch = (a, b) => b ? a / b - 1 : null;
+      return [{ month: cur.month, prevMonth: prev ? prev.month : null, days: cur.days, lastDay: cur.lastDay,
+        lastTables: cur.lastTables, lastPeople: cur.lastPeople, avgTables: cur.avgT, avgPeople: cur.avgP,
+        inc: cur.inc, incDays: cur.incDays, avgInc: cur.avgInc, lastInc: cur.lastInc, proj: cur.avgInc != null ? cur.avgInc * cur.dim : null,
+        tables: cur.tables, people: cur.people, perHour: cur.avgInc != null ? cur.avgInc / cur.hours : null,
+        avgUnique: cur.avgU, uDays: cur.uDays, lastUnique: cur.lastUnique, perGuest: cur.perGuest,
+        dUnique: prev && prev.avgU && cur.avgU != null ? ch(cur.avgU, prev.avgU) : null,
+        dTables: prev ? ch(cur.avgT, prev.avgT) : null, dPeople: prev ? ch(cur.avgP, prev.avgP) : null, dInc: prev && prev.avgInc && cur.avgInc != null ? ch(cur.avgInc, prev.avgInc) : null }];
+    }
+  });
+
+  dash.calc('level_now', {
+    inputs: ['monthly'], title: '本月各級別日均',
+    description: '本月各級別日均人次與日均場次、各自占比，以及與上月日均相比的增減。',
+    fn: (monthly) => {
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      const cur = monthly[monthly.length - 1], prev = monthly[monthly.length - 2];
+      if (!cur) return [];
+      return lv.map((L) => ({ level: String(L), avgP: cur['avgP' + L], avgT: cur['avgT' + L],
+        share: cur.people ? cur['p' + L] / cur.people : 0,
+        tshare: cur.tables ? cur['t' + L] / cur.tables : 0,
+        d: prev && prev['avgP' + L] ? cur['avgP' + L] / prev['avgP' + L] - 1 : null,
+        dT: prev && prev['avgT' + L] ? cur['avgT' + L] / prev['avgT' + L] - 1 : null,
+        avgU: cur['avgU' + L],
+        uShare: cur.avgU ? cur['avgU' + L] / cur.avgU : null,
+        dU: prev && prev['avgU' + L] && cur['avgU' + L] != null ? cur['avgU' + L] / prev['avgU' + L] - 1 : null }));
+    }
+  });
+
+  dash.calc('day_info', {
+    inputs: [...MON.map((m) => 'tlt_m' + m), 'coupon_daily', 'monthly'], title: '單日概況',
+    description: '查詢的日期（沒選時為最後一個已填報日，也就是前一日）的合計，收益為後台行政費櫃檯；增減＝當天 ÷ 當月日均 − 1；折抵券取同一天的發送與使用。',
+    fn: (...inputs) => {
+      const monthly = inputs.pop(), coupons = inputs.pop();
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      const sub = { 1200: 400, 3400: 800, 6600: 1200, 11000: 2000, 21500: 2800 };
+      const days = inputs.flat().filter((r) => r && r.filled).sort((a, b) => a.date < b.date ? -1 : 1);
+      if (!days.length) return [];
+      const want = String(dash.params().day || '');
+      const latest = days[days.length - 1];
+      const r = days.find((x) => x.date === want) || latest;
+      let tables = 0, people = 0, fee = 0;
+      lv.forEach((L) => { tables += r['t' + L]; people += r['p' + L]; fee += r['p' + L] * r['fee' + L]; });
+      const mo = monthly.find((x) => x.ym === r.ym);
+      const c = coupons.find((x) => x.date === r.date);
+      const vs = (v, avg) => avg ? v / avg - 1 : null;
+      return [{ date: r.date, label: r.day + '（' + r.weekday + '）', isLatest: r.date === latest.date, asked: want, found: !want || r.date === want,
+        first: days[0].date, last: latest.date,
+        tables, people, unique: r.uAll, fee, inc: r.inc,
+        dTables: mo ? vs(tables, mo.avgT) : null, dPeople: mo ? vs(people, mo.avgP) : null, dInc: mo && r.inc != null ? vs(r.inc, mo.avgInc) : null,
+        dUnique: mo && r.uAll != null ? vs(r.uAll, mo.avgU) : null,
+        issued: c ? c.issued : null, used: c ? c.used : null, usedAmt: c ? c.usedAmt : null }];
+    }
+  });
+
+  dash.calc('day_levels', {
+    inputs: MON.map((m) => 'tlt_m' + m), title: '單日各級別',
+    description: '查詢日期（沒選時為前一日）各級別的場次、報名人次、不重複客人、每場人次與行政費應收（未扣折抵）。',
+    fn: (...months) => {
+      const lv = [1200, 3400, 6600, 11000, 21500];
+      const sub = { 1200: 400, 3400: 800, 6600: 1200, 11000: 2000, 21500: 2800 };
+      const days = months.flat().filter((r) => r && r.filled).sort((a, b) => a.date < b.date ? -1 : 1);
+      if (!days.length) return [];
+      const want = String(dash.params().day || '');
+      const r = days.find((x) => x.date === want) || days[days.length - 1];
+      return lv.map((L) => {
+        const tables = r['t' + L], people = r['p' + L], fee = people * r['fee' + L];
+        return { level: String(L), tables, people, unique: r['u' + L], perTable: tables ? people / tables : null, fee };
+      });
+    }
+  });
+
+  // ---------- helpers ----------
+  const fmtInt = d3.format(',');
+  const F = {
+    int: (v) => v == null ? '—' : fmtInt(Math.round(v)),
+    f1: (v) => v == null ? '—' : d3.format(',.1f')(v),
+    f0: (v) => v == null ? '—' : fmtInt(Math.round(v)),
+    nt: (v) => v == null ? '—' : (v < 0 ? '−' : '') + 'NT$' + fmtInt(Math.abs(Math.round(v))),
+    pct: (v) => v == null ? '—' : d3.format('.1%')(v),
+  };
+  const ntShort = (v) => Math.abs(v) >= 10000 ? (v / 10000).toFixed(Math.abs(v) >= 100000 ? 0 : 1) + '萬' : fmtInt(v);
+  const lvColor = (L) => 'var(--lv' + L + ')';
+  const state = { metric: 'tables', hidden: new Set(), cmetric: 'count', mmetric: 'avgT', mhidden: new Set(['all']) };
+
+  function skeleton(el, st) { el.classList.toggle('dash-skeleton', st === 'loading'); }
+
+  // ---------- KPI numbers ----------
+  dash.draw('kpi', (el) => {
+    const d = dash.data(el.dataset.source);
+    skeleton(el, d.status);
+    const row = d.status === 'ok' && Array.isArray(d.data) ? d.data[0] : null;
+    el.textContent = row ? (F[el.dataset.fmt] || F.int)(row[el.dataset.field]) : '—';
+  });
+
+  // ---------- automation status ----------
+  function expectedDate(h, m) {
+    const n = new Date(Date.now() + 8 * 3600e3);
+    const back = n.getUTCHours() * 60 + n.getUTCMinutes() < h * 60 + m ? 2 : 1;
+    return new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - back)).toISOString().slice(0, 10);
+  }
+  const md = (iso) => iso ? (+iso.slice(5, 7)) + '/' + (+iso.slice(8, 10)) : '—';
+  dash.draw('auto', (el) => {
+    const isTlt = el.dataset.kind === 'tlt';
+    const d = dash.data(el.dataset.source);
+    skeleton(el, d.status);
+    if (d.status !== 'ok') { el.textContent = d.status === 'error' ? '讀取試算表失敗' : '—'; return; }
+    const last = d.data[0] && d.data[0].last;
+    const exp = isTlt ? expectedDate(7, 30) : expectedDate(7, 45);
+    const pill = document.createElement('span');
+    const txt = document.createElement('span');
+    if (isTlt && String(+exp.slice(5, 7)) !== String(dash.params().month)) {
+      pill.className = 'ut-pill na'; pill.textContent = '—';
+      txt.textContent = '目前看的是 ' + dash.params().month + ' 月；切到 ' + (+exp.slice(5, 7)) + ' 月才能檢查最新填報';
+    } else if (last && last >= exp) {
+      pill.className = 'ut-pill ok'; pill.textContent = '正常';
+      txt.textContent = '已填到 ' + md(last);
+    } else {
+      pill.className = 'ut-pill warn'; pill.textContent = '待確認';
+      txt.textContent = '最後填到 ' + md(last) + '，應已填到 ' + md(exp);
+    }
+    el.replaceChildren(pill, txt);
+  });
+
+  // ---------- TLT stacked chart ----------
+  function tipHTML(tip, title, rows, total) {
+    tip.replaceChildren();
+    const b = document.createElement('b'); b.textContent = title; tip.append(b);
+    rows.forEach(([lab, color, val]) => {
+      const r = document.createElement('div'); r.className = 'row';
+      const a = document.createElement('span'); if (color) { const i = document.createElement('i'); i.style.background = color; a.append(i); } a.append(lab);
+      const c = document.createElement('span'); c.textContent = val; r.append(a, c); tip.append(r);
+    });
+    if (total) { const r = document.createElement('div'); r.className = 'row'; r.style.fontWeight = '600'; const a = document.createElement('span'); a.textContent = total[0]; const c = document.createElement('span'); c.textContent = total[1]; r.append(a, c); tip.append(r); }
+  }
+  function placeTip(el, tip, ev) {
+    const box = el.getBoundingClientRect();
+    let x = ev.clientX - box.left + 12, y = ev.clientY - box.top - 10;
+    tip.hidden = false;
+    if (x + tip.offsetWidth > el.clientWidth) x = ev.clientX - box.left - tip.offsetWidth - 12;
+    if (x < 0) x = 0;
+    tip.style.left = x + 'px'; tip.style.top = Math.max(0, y) + 'px';
+  }
+  function msg(el, text) { const p = document.createElement('div'); p.className = 'ut-msg'; p.textContent = text; el.replaceChildren(p); }
+
+  function yAxisMargin(svg, y, fmt) {
+    const g = svg.append('g').call(d3.axisLeft(y).ticks(5).tickFormat(fmt));
+    let w = 0; g.selectAll('text').each(function () { w = Math.max(w, this.getComputedTextLength()); });
+    g.remove();
+    return Math.ceil(w) + 12;
+  }
+
+  dash.draw('tltchart', (el) => {
+    const d = dash.data('tlt');
+    skeleton(el, d.status);
+    if (d.status === 'error') return msg(el, 'TLT 報表讀取失敗。');
+    if (d.status !== 'ok') return msg(el, '—');
+    const all = d.data;
+    if (!all.length) return msg(el, '這個月份還沒有分頁或資料。');
+    const levels = LV.filter((L) => !state.hidden.has(L));
+    const val = (r, L) => state.metric === 'tables' ? r['t' + L] : state.metric === 'people' ? r['p' + L] : r['p' + L] * r['fee' + L];
+    const unit = state.metric === 'tables' ? '場' : state.metric === 'people' ? '人' : '';
+    const vf = state.metric === 'revenue' ? F.nt : (v) => fmtInt(v) + ' ' + unit;
+    const series = d3.stack().keys(levels).value((r, L) => r.filled ? val(r, L) : 0)(all);
+    const W = Math.max(280, el.clientWidth), H = 280;
+    const ymax = d3.max(series.length ? series[series.length - 1] : [], (p) => p[1]) || 1;
+    const y = d3.scaleLinear().domain([0, ymax]).nice().range([H - 26, 10]);
+    const tickF = state.metric === 'revenue' ? ntShort : d3.format(',');
+    el.replaceChildren();
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
+      .attr('role', 'img').attr('aria-label', '每日各級別' + (state.metric === 'tables' ? '場次' : state.metric === 'people' ? '人次' : '行政費應收') + '堆疊長條圖');
+    const ml = yAxisMargin(svg, y, tickF);
+    const x = d3.scaleBand().domain(all.map((r) => r.date)).range([ml, W - 4]).padding(0.22);
+    svg.append('g').attr('class', 'grid').attr('transform', `translate(${ml},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickSize(-(W - ml - 4)).tickFormat(tickF))
+      .call((g) => g.selectAll('text').attr('x', -6));
+    const step = Math.ceil(all.length / Math.max(4, Math.floor((W - ml) / 46)));
+    svg.append('g').attr('class', 'x').attr('transform', `translate(0,${H - 26})`)
+      .call(d3.axisBottom(x).tickSizeOuter(0).tickValues(all.filter((r, i) => i % step === 0).map((r) => r.date)).tickFormat((dt) => (+dt.slice(5, 7)) + '/' + (+dt.slice(8))));
+    svg.append('g').selectAll('g').data(series).join('g').style('fill', (s) => lvColor(s.key))
+      .selectAll('rect').data((s) => s).join('rect').attr('class', 'bar')
+      .attr('x', (p) => x(p.data.date)).attr('width', x.bandwidth())
+      .attr('y', (p) => y(p[1])).attr('height', (p) => Math.max(0, y(p[0]) - y(p[1])));
+    // hover columns
+    const tip = document.createElement('div'); tip.className = 'ut-tip'; tip.hidden = true; el.append(tip);
+    svg.append('g').selectAll('rect').data(all).join('rect')
+      .attr('x', (r) => x(r.date) - x.step() * x.padding() / 2).attr('width', x.step()).attr('y', 0).attr('height', H - 26)
+      .style('fill', 'transparent')
+      .on('pointermove', (ev, r) => {
+        if (!r.filled) { tipHTML(tip, r.day + '（' + r.weekday + '）', [['尚未填報', null, '']]); }
+        else {
+          const rows = LV.filter((L) => !state.hidden.has(L)).slice().reverse().map((L) => [String(L), lvColor(L), vf(val(r, L))]);
+          const tot = levels.reduce((a, L) => a + val(r, L), 0);
+          tipHTML(tip, r.day + '（' + r.weekday + '）', rows, ['合計', vf(tot)]);
+        }
+        placeTip(el, tip, ev);
+      })
+      .on('pointerleave', () => { tip.hidden = true; });
+  });
+
+  // ---------- TLT tables ----------
+  function cell(tr, text, cls) { const td = document.createElement('td'); td.textContent = text; if (cls) td.className = cls; tr.append(td); return td; }
+  dash.draw('levels', (tb) => {
+    const d = dash.data('tlt_levels');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—').colSpan = 6; tb.append(tr); return; }
+    d.data.forEach((r) => {
+      const tr = document.createElement('tr'); tr.dataset.key = r.level;
+      const td = cell(tr, ''); const dot = document.createElement('span'); dot.className = 'lvdot'; dot.style.background = lvColor(r.level); td.append(dot, r.level);
+      cell(tr, F.int(r.tables)); cell(tr, F.f1(r.perDay)); cell(tr, F.int(r.people)); cell(tr, F.f1(r.avgSize));
+      cell(tr, F.nt(r.fee));
+      tb.append(tr);
+    });
+  });
+
+  dash.draw('tltdays', (tb) => {
+    const d = dash.data('tlt'), c = dash.data('tlt_days');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—').colSpan = 12; tb.append(tr); return; }
+    const calc = new Map((c.status === 'ok' ? c.data : []).map((r) => [r.date, r]));
+    d.data.filter((r) => r.filled).slice().reverse().forEach((r) => {
+      const k = calc.get(r.date) || {};
+      const tr = document.createElement('tr'); tr.dataset.key = r.date;
+      cell(tr, r.day); cell(tr, r.weekday);
+      LV.forEach((L) => cell(tr, r['t' + L] ? fmtInt(r['t' + L]) : '·'));
+      cell(tr, F.int(k.tables)); cell(tr, F.int(k.people)); cell(tr, F.int(r.uAll)); cell(tr, F.nt(k.fee)); cell(tr, F.nt(r.inc));
+      tb.append(tr);
+    });
+  });
+
+  // ---------- coupon chart ----------
+  dash.draw('cchart', (el) => {
+    const d = dash.data('coupon_daily');
+    skeleton(el, d.status);
+    if (d.status === 'error') return msg(el, '折抵報表讀取失敗。');
+    if (d.status !== 'ok') return msg(el, '—');
+    const rows = d.data;
+    if (!rows.length) return msg(el, '還沒有折抵資料。');
+    const amt = state.cmetric === 'amount';
+    const keys = amt ? ['issuedAmt', 'usedAmt'] : ['issued', 'used'];
+    const cols = ['var(--c-issue)', 'var(--c-use)'];
+    const W = Math.max(280, el.clientWidth), H = 280;
+    const y = d3.scaleLinear().domain([0, d3.max(rows, (r) => Math.max(r[keys[0]], r[keys[1]])) || 1]).nice().range([H - 26, 18]);
+    const tickF = amt ? ntShort : d3.format(',');
+    el.replaceChildren();
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
+      .attr('role', 'img').attr('aria-label', '每日折抵券發送與使用' + (amt ? '金額' : '張數'));
+    const ml = yAxisMargin(svg, y, tickF);
+    const x = d3.scaleBand().domain(rows.map((r) => r.date)).range([ml, W - 4]).padding(0.3);
+    const x1 = d3.scaleBand().domain([0, 1]).range([0, x.bandwidth()]).padding(0.08);
+    svg.append('g').attr('class', 'grid').attr('transform', `translate(${ml},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickSize(-(W - ml - 4)).tickFormat(tickF)).call((g) => g.selectAll('text').attr('x', -6));
+    svg.append('g').attr('class', 'x').attr('transform', `translate(0,${H - 26})`)
+      .call(d3.axisBottom(x).tickSizeOuter(0).tickFormat((dt) => (+dt.slice(5, 7)) + '/' + (+dt.slice(8))));
+    const g = svg.append('g').selectAll('g').data(rows).join('g').attr('transform', (r) => `translate(${x(r.date)},0)`);
+    keys.forEach((k, i) => {
+      g.append('rect').attr('x', x1(i)).attr('width', x1.bandwidth()).attr('y', (r) => y(r[k])).attr('height', (r) => y(0) - y(r[k])).style('fill', cols[i]);
+      if (x1.bandwidth() > 18) g.append('text').attr('x', x1(i) + x1.bandwidth() / 2).attr('y', (r) => y(r[k]) - 4).attr('text-anchor', 'middle').text((r) => amt ? ntShort(r[k]) : fmtInt(r[k]));
+    });
+    const tip = document.createElement('div'); tip.className = 'ut-tip'; tip.hidden = true; el.append(tip);
+    g.append('rect').attr('x', -x.step() * x.padding() / 2).attr('width', x.step()).attr('y', 0).attr('height', H - 26).style('fill', 'transparent')
+      .on('pointermove', (ev, r) => {
+        const lines = CLV.map((L) => [L + ' 券', lvColor(L), '發 ' + (r['i' + L] || 0) + '／用 ' + (r['u' + L] || 0)]);
+        lines.push(['刪除', null, fmtInt(r.deleted)]);
+        tipHTML(tip, r.day, lines, ['發送／使用', amt ? F.nt(r.issuedAmt) + '／' + F.nt(r.usedAmt) : r.issued + '／' + r.used + ' 張']);
+        placeTip(el, tip, ev);
+      })
+      .on('pointerleave', () => { tip.hidden = true; });
+  });
+
+  dash.draw('clevels', (tb) => {
+    const d = dash.data('coupon_levels');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—').colSpan = 8; tb.append(tr); return; }
+    d.data.forEach((r) => {
+      const tr = document.createElement('tr'); tr.dataset.key = r.level;
+      const td = cell(tr, ''); const dot = document.createElement('span'); dot.className = 'lvdot'; dot.style.background = lvColor(r.level); td.append(dot, r.level + ' 券');
+      cell(tr, F.int(r.issued)); cell(tr, F.int(r.used)); cell(tr, F.pct(r.rate));
+      const bt = document.createElement('td'); const bar = document.createElement('div'); bar.className = 'ut-bar'; const s = document.createElement('span'); s.style.width = Math.min(100, (r.rate || 0) * 100) + '%'; bar.append(s); bt.append(bar); tr.append(bt);
+      cell(tr, F.nt(r.usedAmt)); cell(tr, F.int(r.entries)); cell(tr, F.pct(r.share));
+      tb.append(tr);
+    });
+  });
+
+  dash.draw('cdays', (tb) => {
+    const d = dash.data('coupon_daily');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—').colSpan = 7; tb.append(tr); return; }
+    d.data.slice().reverse().forEach((r) => {
+      const tr = document.createElement('tr'); tr.dataset.key = r.date;
+      cell(tr, r.day); cell(tr, F.int(r.issued)); cell(tr, F.nt(r.issuedAmt)); cell(tr, F.int(r.deleted)); cell(tr, F.int(r.used)); cell(tr, F.nt(r.usedAmt));
+      const n = cell(tr, r.notes || '', 'note'); n.style.whiteSpace = 'pre-line';
+      tb.append(tr);
+    });
+  });
+
+  // ---------- bubbles ----------
+  const sign = (d) => d == null ? '' : (d > 0.005 ? '▲ ' : d < -0.005 ? '▼ ' : '');
+  const dcls = (d) => d == null || Math.abs(d) <= 0.005 ? 'flat' : d > 0 ? 'up' : 'down';
+  dash.draw('nowd', (el) => {
+    const d = dash.data('month_now');
+    skeleton(el, d.status);
+    const r = d.status === 'ok' ? d.data[0] : null;
+    if (!r || r[el.dataset.field] == null) { el.textContent = '—'; el.className = 'td flat'; return; }
+    const v = r[el.dataset.field];
+    el.className = 'td ' + dcls(v);
+    el.textContent = sign(v) + '較' + r.prevMonth + ' ' + (v > 0 ? '+' : '') + F.pct(v);
+  });
+  dash.draw('nowtxt', (el) => {
+    const d = dash.data('month_now');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = r ? r.month + ' ' + r.lastDay + '（已填 ' + r.days + ' 天）' : '—';
+  });
+  dash.draw('lastday', (el) => {
+    const d = dash.data('month_now');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = r ? r.lastDay : '—';
+  });
+  dash.draw('unote', (el) => {
+    const d = dash.data('month_now');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = !r ? '—' : r.uDays ? '依 ' + r.uDays + ' 天統計' : '尚無資料，每日任務更新後開始記錄';
+  });
+  dash.draw('lvlist', (el) => {
+    const d = dash.data('level_now');
+    const isP = el.dataset.kind === 'P';
+    if (d.status !== 'ok') { el.replaceChildren(); return; }
+    const useU = isP && d.data.some((r) => r.avgU != null);
+    const mk = (cls, t) => { const x = document.createElement('span'); x.className = cls; x.textContent = t; return x; };
+    const hd = document.createElement('div'); hd.className = 'ut-lv ut-lvhd';
+    hd.append(mk('nm', '級別'), mk('', useU ? '占全館客人' : isP ? '占本月人次' : '占本月場次'), mk('v', useU ? '日均不重複' : isP ? '日均人次' : '日均場次'), mk('d', '較上月'));
+    const rows = d.data.filter((r) => (useU ? r.avgU : isP ? r.avgP : r.avgT) > 0).map((r) => {
+      const row = document.createElement('div'); row.className = 'ut-lv';
+      const nm = document.createElement('span'); nm.className = 'nm'; const i = document.createElement('i'); i.style.background = lvColor(r.level); nm.append(i, r.level);
+      const br = document.createElement('span'); br.className = 'br'; const bs = document.createElement('span'); const sh = useU ? r.uShare : isP ? r.share : r.tshare;
+      bs.style.width = Math.min(100, sh * 100) + '%'; br.append(bs);
+      br.title = F.pct(sh);
+      const v = mk('v', useU ? F.f0(r.avgU) : isP ? F.f0(r.avgP) : F.f1(r.avgT));
+      v.dataset.source = 'level_now'; v.dataset.field = useU ? 'avgU' : isP ? 'avgP' : 'avgT'; v.dataset.where = 'level=' + r.level;
+      const ch = useU ? r.dU : isP ? r.d : r.dT;
+      const dd = mk('d ' + dcls(ch), ch == null ? '—' : sign(ch) + (ch > 0 ? '+' : '') + F.pct(ch));
+      row.append(nm, br, v, dd);
+      return row;
+    });
+    el.replaceChildren(hd, ...rows);
+  });
+
+  // ---------- month comparison ----------
+  const MKEY = (L) => L === 'all' ? (state.mmetric === 'totP' ? 'people' : state.mmetric) : (state.mmetric === 'totP' ? 'p' + L : state.mmetric + L);
+  const MFMT = () => ({ avgT: F.f1, avgU: F.f0, avgP: F.f0, avgR: F.nt, totP: F.int })[state.mmetric];
+  const MNAME = { avgT: '日均場次', avgU: '日均不重複客人', avgP: '日均人次', avgR: '日均行政費應收', totP: '月總人次' };
+  const mColor = (L) => L === 'all' ? '#14213D' : lvColor(L);
+
+  dash.draw('mchart', (el) => {
+    const d = dash.data('monthly');
+    skeleton(el, d.status);
+    if (d.status === 'error') return msg(el, '有月份讀取失敗。');
+    if (d.status !== 'ok') return msg(el, '—');
+    const rows = d.data;
+    if (!rows.length) return msg(el, '還沒有資料。');
+    const keys = ['all', ...LV].filter((L) => !state.mhidden.has(String(L)) && rows.some((r) => r[MKEY(L)] > 0));
+    if (!keys.length) return msg(el, state.mmetric === 'avgU' ? '還沒有不重複客人的資料；每日任務開始記錄後，這裡會逐月累積。' : '目前沒有顯示任何級別。');
+    const fm = MFMT();
+    const W = Math.max(280, el.clientWidth), H = 300;
+    const ymax = d3.max(keys, (L) => d3.max(rows, (r) => r[MKEY(L)])) || 1;
+    const y = d3.scaleLinear().domain([0, ymax]).nice().range([H - 26, 14]);
+    const tickF = state.mmetric === 'avgR' ? ntShort : d3.format(',');
+    el.replaceChildren();
+    const svg = d3.select(el).append('svg').attr('width', '100%').attr('height', H).attr('viewBox', `0 0 ${W} ${H}`)
+      .attr('role', 'img').attr('aria-label', '各級別逐月' + MNAME[state.mmetric] + '折線圖');
+    const ml = yAxisMargin(svg, y, tickF);
+    const x = d3.scalePoint().domain(rows.map((r) => r.ym)).range([ml + 14, W - 50]).padding(0.2);
+    svg.append('g').attr('class', 'grid').attr('transform', `translate(${ml},0)`)
+      .call(d3.axisLeft(y).ticks(5).tickSize(-(W - ml - 4)).tickFormat(tickF)).call((g) => g.selectAll('text').attr('x', -6));
+    svg.append('g').attr('class', 'x').attr('transform', `translate(0,${H - 26})`)
+      .call(d3.axisBottom(x).tickSizeOuter(0).tickFormat((ym) => (+ym.slice(5)) + '月'))
+      .call((g) => g.select('.domain').remove());
+    const curYm = rows[rows.length - 1].ym;
+    svg.append('rect').attr('x', x(curYm) - x.step() / 2).attr('width', x.step()).attr('y', 14).attr('height', H - 40).style('fill', 'var(--ut-soft)');
+    keys.forEach((L) => {
+      const k = MKEY(L);
+      svg.append('path').datum(rows).attr('fill', 'none').style('stroke', mColor(L)).attr('stroke-width', L === 'all' ? 2.5 : 2)
+        .attr('d', d3.line().defined((r) => r[k] != null).x((r) => x(r.ym)).y((r) => y(r[k])));
+      svg.append('g').selectAll('circle').data(rows.filter((r) => r[k] != null)).join('circle').attr('class', 'dot').attr('r', 3.5)
+        .attr('cx', (r) => x(r.ym)).attr('cy', (r) => y(r[k])).style('fill', mColor(L));
+    });
+    // end labels, nudged apart
+    const ends = keys.filter((L) => rows[rows.length - 1][MKEY(L)] != null).map((L) => ({ L, y: y(rows[rows.length - 1][MKEY(L)]) })).sort((a, b) => a.y - b.y);
+    for (let i = 1; i < ends.length; i++) if (ends[i].y - ends[i - 1].y < 13) ends[i].y = ends[i - 1].y + 13;
+    svg.append('g').selectAll('text').data(ends).join('text').attr('x', x(curYm) + 8).attr('y', (e) => e.y + 4)
+      .style('fill', (e) => mColor(e.L)).style('font-weight', '600').text((e) => e.L === 'all' ? '全部' : e.L);
+    const tip = document.createElement('div'); tip.className = 'ut-tip'; tip.hidden = true; el.append(tip);
+    svg.append('g').selectAll('rect').data(rows).join('rect')
+      .attr('x', (r) => x(r.ym) - x.step() / 2).attr('width', x.step()).attr('y', 0).attr('height', H - 26).style('fill', 'transparent')
+      .on('pointermove', (ev, r) => {
+        const i = rows.indexOf(r), p = rows[i - 1];
+        const lines = keys.slice().reverse().map((L) => {
+          const v = r[MKEY(L)], pv = p ? p[MKEY(L)] : null;
+          const ch = pv && v != null ? v / pv - 1 : null;
+          return [L === 'all' ? '全部' : String(L), mColor(L), fm(v) + (ch == null ? '' : '（' + (ch > 0 ? '+' : '') + F.pct(ch) + '）')];
+        });
+        tipHTML(tip, r.month + '・' + MNAME[state.mmetric] + '（' + r.days + ' 天）', lines);
+        placeTip(el, tip, ev);
+      })
+      .on('pointerleave', () => { tip.hidden = true; });
+  });
+
+  dash.draw('gaphead', (th) => {
+    const d = dash.data('monthly');
+    const tr = document.createElement('tr');
+    const h0 = document.createElement('th'); h0.textContent = '級別'; tr.append(h0);
+    (d.status === 'ok' ? d.data : []).forEach((r) => { const h = document.createElement('th'); h.textContent = r.month + (r.days < r.dim ? '（' + r.days + '天）' : ''); tr.append(h); });
+    th.replaceChildren(tr);
+  });
+  dash.draw('gapbody', (tb) => {
+    const d = dash.data('monthly');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—'); tb.append(tr); return; }
+    const rows = d.data, fm = MFMT();
+    [...LV, 'all'].forEach((L) => {
+      const k = MKEY(L);
+      const tr = document.createElement('tr');
+      const td0 = cell(tr, '');
+      if (L === 'all') { td0.textContent = '全部級別'; td0.style.fontWeight = '600'; }
+      else { const dot = document.createElement('span'); dot.className = 'lvdot'; dot.style.background = lvColor(L); td0.append(dot, String(L)); }
+      rows.forEach((r, i) => {
+        const v = r[k], p = i ? rows[i - 1][k] : null;
+        const td = cell(tr, fm(v), i === rows.length - 1 ? 'cur' : '');
+        const dl = document.createElement('span');
+        if (p && v != null) { const ch = v / p - 1; dl.className = 'dl ' + dcls(ch); dl.textContent = sign(ch) + (ch > 0 ? '+' : '') + F.pct(ch); }
+        else { dl.className = 'dl flat'; dl.textContent = i ? (v ? '新開' : '') : ''; }
+        td.append(dl);
+      });
+      tb.append(tr);
+    });
+  });
+
+  // ---------- single day ----------
+  dash.draw('daytitle', (el) => {
+    const d = dash.data('day_info');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.classList.toggle('pick', !!(r && !r.isLatest));
+    if (!r) { el.textContent = '前一日概況'; return; }
+    const n = new Date(Date.now() + 8 * 3600e3);
+    const y = new Date(Date.UTC(n.getUTCFullYear(), n.getUTCMonth(), n.getUTCDate() - 1)).toISOString().slice(0, 10);
+    const yLabel = (+y.slice(5, 7)) + '/' + (+y.slice(8, 10));
+    let t;
+    if (!r.isLatest) t = '查詢日概況・' + r.label;
+    else if (r.date === y) t = '前一日概況・' + r.label;
+    else t = '最近填報日概況・' + r.label + '（前一日 ' + yLabel + ' 的場次還沒填進報表）';
+    el.classList.toggle('pick', !r.isLatest || r.date !== y);
+    el.textContent = t + (r.found ? '' : '（' + r.asked + ' 沒有資料，顯示最近一天）');
+  });
+  dash.draw('dayd', (el) => {
+    const d = dash.data('day_info');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    const v = r ? r[el.dataset.field] : null;
+    if (v == null) { el.className = 'td flat'; el.textContent = ''; return; }
+    el.className = 'td ' + dcls(v);
+    el.textContent = sign(v) + '較月均 ' + (v > 0 ? '+' : '') + F.pct(v);
+  });
+  dash.draw('dayinote', (el) => {
+    const d = dash.data('day_info');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = r && r.inc == null ? '這天尚未抄錄後台收益' : '後台行政費櫃檯';
+  });
+  dash.draw('incnote', (el) => {
+    const d = dash.data('month_now');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = !r ? '—' : r.incDays ? '依 ' + r.incDays + ' 天後台資料' : '尚無後台收益資料';
+  });
+  dash.draw('dayunote', (el) => {
+    const d = dash.data('day_info');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    el.textContent = r && r.unique == null ? '這天尚未統計' : '';
+  });
+  dash.draw('daypick', (el) => {
+    const d = dash.data('day_info');
+    const r = d.status === 'ok' ? d.data[0] : null;
+    if (r) { el.min = r.first; el.max = r.last; if (document.activeElement !== el) el.value = r.date; }
+    el.onchange = () => {
+      if (!(el.value && el.validity.valid)) return;
+      dash.setParams({ day: el.value, month: String(+el.value.slice(5, 7)) });
+    };
+    el.onblur = () => { if (r) el.value = r.date; };
+  });
+  dash.draw('daylevels', (tb) => {
+    const d = dash.data('day_levels');
+    tb.replaceChildren();
+    if (d.status !== 'ok') { const tr = document.createElement('tr'); cell(tr, d.status === 'error' ? '讀取失敗' : '—').colSpan = 6; tb.append(tr); return; }
+    d.data.filter((r) => r.tables > 0).forEach((r) => {
+      const tr = document.createElement('tr'); tr.dataset.key = r.level;
+      const td = cell(tr, ''); const dot = document.createElement('span'); dot.className = 'lvdot'; dot.style.background = lvColor(r.level); td.append(dot, r.level);
+      cell(tr, F.int(r.tables)); cell(tr, F.int(r.people)); cell(tr, F.int(r.unique)); cell(tr, F.f1(r.perTable));
+      cell(tr, F.nt(r.fee));
+      tb.append(tr);
+    });
+  });
+
+  // ---------- controls ----------
+  document.querySelectorAll('#ut-month').forEach((sel) => {
+    sel.value = String(dash.params().month || curMonth);
+    sel.addEventListener('change', () => dash.setParams({ month: sel.value }));
+  });
+  document.querySelectorAll('#ut-latest').forEach((b) => {
+    b.addEventListener('click', () => dash.setParams({ day: null, month: curMonth }));
+  });
+  dash.onData(() => {
+    document.querySelectorAll('#ut-month').forEach((sel) => { if (document.activeElement !== sel) sel.value = String(dash.params().month); });
+  });
+  document.querySelectorAll('[data-metric]').forEach((b) => b.addEventListener('click', () => {
+    state.metric = b.dataset.metric;
+    document.querySelectorAll('[data-metric]').forEach((o) => o.classList.toggle('on', o === b));
+    dash.draw('tltchart');
+  }));
+  document.querySelectorAll('[data-cmetric]').forEach((b) => b.addEventListener('click', () => {
+    state.cmetric = b.dataset.cmetric;
+    document.querySelectorAll('[data-cmetric]').forEach((o) => o.classList.toggle('on', o === b));
+    dash.draw('cchart');
+  }));
+  document.querySelectorAll('.ut-chip[data-level]').forEach((b) => {
+    b.setAttribute('aria-pressed', 'true');
+    b.addEventListener('click', () => {
+      const L = +b.dataset.level;
+      if (state.hidden.has(L)) state.hidden.delete(L); else if (state.hidden.size < LV.length - 1) state.hidden.add(L);
+      b.classList.toggle('off', state.hidden.has(L)); b.setAttribute('aria-pressed', String(!state.hidden.has(L)));
+      dash.draw('tltchart');
+    });
+  });
+  document.querySelectorAll('[data-mmetric]').forEach((b) => b.addEventListener('click', () => {
+    state.mmetric = b.dataset.mmetric;
+    document.querySelectorAll('[data-mmetric]').forEach((o) => o.classList.toggle('on', o === b));
+    dash.draw('mchart'); dash.draw('gapbody');
+  }));
+  document.querySelectorAll('.ut-chip[data-mlevel]').forEach((b) => {
+    const L = b.dataset.mlevel;
+    b.classList.toggle('off', state.mhidden.has(L)); b.setAttribute('aria-pressed', String(!state.mhidden.has(L)));
+    b.addEventListener('click', () => {
+      if (state.mhidden.has(L)) state.mhidden.delete(L); else state.mhidden.add(L);
+      b.classList.toggle('off', state.mhidden.has(L)); b.setAttribute('aria-pressed', String(!state.mhidden.has(L)));
+      dash.draw('mchart');
+    });
+  });
+  function openTab(name) {
+    document.querySelectorAll('.ut-tab').forEach((t) => t.setAttribute('aria-selected', String(t.dataset.tab === name)));
+    document.querySelectorAll('.ut-sec').forEach((s) => { s.hidden = s.id !== name; });
+    dash.setLink(name);
+  }
+  document.querySelectorAll('.ut-tab').forEach((t) => t.addEventListener('click', () => openTab(t.dataset.tab)));
+  if (location.hash === '#coupon' || location.hash === '#compare') openTab(location.hash.slice(1));
+})();
+</script>
+
+</div>
+<script>
+(function () {
+  const login = document.getElementById('ut-login');
+  window.utShowLogin = () => { login.hidden = false; setTimeout(() => document.getElementById('ut-pw').focus(), 50); };
+  window.utLoadedAt = (at) => {
+    const d = new Date(at);
+    document.getElementById('ut-loaded').textContent = '資料讀取時間 ' + d.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
+  };
+  document.getElementById('ut-login-form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const err = document.getElementById('ut-login-err');
+    err.textContent = '';
+    const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: document.getElementById('ut-pw').value }) }).catch(() => null);
+    if (r && r.ok) { login.hidden = true; document.getElementById('ut-pw').value = ''; window.utStart(); }
+    else err.textContent = r && r.status === 401 ? '密碼錯誤，請再試一次' : '登入失敗，請稍後再試';
+  });
+  document.getElementById('ut-refresh').addEventListener('click', () => dash.refresh());
+  document.getElementById('ut-logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.reload(); });
+  window.utStart();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+{
+  "name": "ut-poker-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "UT Poker 營運儀表板：讀取每日報表與週年慶全免折抵報表",
+  "engines": { "node": ">=18" }
+}
