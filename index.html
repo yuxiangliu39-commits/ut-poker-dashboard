@@ -26,6 +26,7 @@ img{max-width:100%}
   background-repeat:no-repeat;background-position:right 10px center;cursor:pointer}
 .dash-skeleton{position:relative;color:transparent!important}
 .dash-skeleton::after{content:"";position:absolute;left:0;top:50%;width:min(80px,100%);height:.8em;transform:translateY(-50%);border-radius:4px;background:#E7ECF4}
+.ut-alert{background:#FDECEA;border:1px solid #F3B8B2;color:#8A1F17;border-radius:8px;padding:10px 14px;margin-bottom:10px;font-size:13.5px;line-height:1.6}
 .ut-topbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;font-size:12px;color:#5B6478;margin-bottom:10px}
 .ut-topbar button{appearance:none;font:inherit;font-size:12px;border:1px solid #DCE3EF;background:#fff;color:#173069;border-radius:6px;padding:4px 10px;cursor:pointer}
 </style>
@@ -33,6 +34,7 @@ img{max-width:100%}
 <body>
 <script src="/runtime.js"></script>
 <div id="dash-root" lang="zh-TW">
+<div class="ut-alert" id="ut-alert" role="alert" hidden></div>
 <div class="ut-topbar"><span id="ut-loaded">—</span><button type="button" id="ut-refresh">重新整理資料</button></div>
 <style>
 /* Layout: blue header band → live bubbles → automation status strip → three tabs (TLT 賽事 / 月份對比 / 週年慶折抵) */
@@ -1189,6 +1191,16 @@ details.ut-notes ul{margin:8px 0 0;padding-left:18px;color:var(--color-fg-muted)
 </div>
 <script>
 (function () {
+  const HINTS = {
+    'GOOGLE_SERVICE_ACCOUNT_JSON is not set': '伺服器還沒設定 Google 服務帳號金鑰：請到 Vercel 專案 Settings → Environment Variables 新增 GOOGLE_SERVICE_ACCOUNT_JSON（金鑰 JSON 全文），再到 Deployments 按 Redeploy。',
+  };
+  window.utError = (msg) => {
+    const el = document.getElementById('ut-alert');
+    if (!msg) { el.hidden = true; return; }
+    const hint = HINTS[msg] || (/permission|403|does not have/i.test(msg) ? '服務帳號沒有讀取權限：請把「每日報表」和「週年慶全免折抵報表」共用給服務帳號的 email（檢視者）。' : '');
+    el.textContent = '資料讀取失敗：' + (hint || msg);
+    el.hidden = false;
+  };
   window.utLoadedAt = (at) => {
     const d = new Date(at);
     document.getElementById('ut-loaded').textContent = '資料讀取時間 ' + d.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });

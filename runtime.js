@@ -66,10 +66,12 @@
       res = await fetch('/api/data?month=' + encodeURIComponent(params.month) + (onlyTlt ? '&only=tlt' : ''), { credentials: 'same-origin' });
     } catch (e) {
       setAll('error', '連不到伺服器，請檢查網路');
+      window.utError && window.utError('連不到伺服器，請檢查網路');
       return redraw();
     }
     const j = await res.json().catch(() => ({}));
-    if (!res.ok) { setAll('error', j.error || '讀取失敗'); return redraw(); }
+    if (!res.ok) { setAll('error', j.error || '讀取失敗'); window.utError && window.utError(j.error || ('HTTP ' + res.status)); return redraw(); }
+    window.utError && window.utError('');
     Object.entries(j.datasets || {}).forEach(([id, d]) => { raw[id] = { ...d }; });
     window.utLoadedAt && window.utLoadedAt(j.at);
     redraw();
