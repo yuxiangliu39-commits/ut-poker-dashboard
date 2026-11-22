@@ -1192,6 +1192,7 @@ details.ut-notes ul{margin:8px 0 0;padding-left:18px;color:var(--color-fg-muted)
 <script>
 (function () {
   const HINTS = {
+    'GOOGLE_SERVICE_ACCOUNT_JSON format': 'Vercel 上的 GOOGLE_SERVICE_ACCOUNT_JSON 格式不對：請用記事本打開金鑰 .json 檔，Ctrl+A 全選、Ctrl+C 複製，整份重新貼到 Value（要包含最前面的 { 和最後面的 }），儲存後 Redeploy。',
     'GOOGLE_SERVICE_ACCOUNT_JSON is not set': '伺服器還沒設定 Google 服務帳號金鑰：請到 Vercel 專案 Settings → Environment Variables 新增 GOOGLE_SERVICE_ACCOUNT_JSON（金鑰 JSON 全文），再到 Deployments 按 Redeploy。',
   };
   window.utError = (msg) => {

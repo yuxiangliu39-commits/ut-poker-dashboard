@@ -6,11 +6,34 @@ const COUPON_SHEET = '1K0fg4LWicoJl1tGvTkb0wLklSZbAIKfez0CxEjW6oKw'; // 週年�
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 
 // --- Google service account (JWT → access token), cached per warm instance
+// Reads the key from GOOGLE_SERVICE_ACCOUNT_JSON. Tolerates common paste slips
+// (missing outer braces, wrapping quotes, base64). Error messages never include
+// any part of the key, because they are returned to the (public) page.
+function readServiceAccount() {
+  let s = (process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '').trim();
+  if (!s) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set');
+  if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"') && !s.includes('":'))) s = s.slice(1, -1).trim();
+  if (!s.startsWith('{') && /^[A-Za-z0-9+/=\s]+$/.test(s)) {
+    try { s = Buffer.from(s, 'base64').toString('utf8').trim(); } catch (e) { /* fall through */ }
+  }
+  const candidates = [s];
+  if (!s.startsWith('{')) candidates.push('{' + s.replace(/,\s*$/, '') + (s.endsWith('}') ? '' : '}'));
+  if (s.startsWith('{') && !s.endsWith('}')) candidates.push(s.replace(/,\s*$/, '') + '}');
+  for (const c of candidates) {
+    let sa;
+    try { sa = JSON.parse(c); } catch (e) { continue; }
+    if (sa && sa.client_email && sa.private_key) {
+      sa.private_key = String(sa.private_key).replace(/\\n/g, '\n');
+      return sa;
+    }
+  }
+  throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON format');
+}
+
 let cachedToken = null;
 async function googleToken() {
   if (cachedToken && cachedToken.exp > Date.now() + 60e3) return cachedToken.token;
-  const sa = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON || '{}');
-  if (!sa.client_email || !sa.private_key) throw new Error('GOOGLE_SERVICE_ACCOUNT_JSON is not set');
+  const sa = readServiceAccount();
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claim = b64url(JSON.stringify({
