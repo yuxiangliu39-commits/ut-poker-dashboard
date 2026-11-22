@@ -68,7 +68,6 @@
       setAll('error', '連不到伺服器，請檢查網路');
       return redraw();
     }
-    if (res.status === 401) { window.utShowLogin && window.utShowLogin(); return; }
     const j = await res.json().catch(() => ({}));
     if (!res.ok) { setAll('error', j.error || '讀取失敗'); return redraw(); }
     Object.entries(j.datasets || {}).forEach(([id, d]) => { raw[id] = { ...d }; });

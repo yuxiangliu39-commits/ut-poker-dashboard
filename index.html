@@ -28,28 +28,12 @@ img{max-width:100%}
 .dash-skeleton::after{content:"";position:absolute;left:0;top:50%;width:min(80px,100%);height:.8em;transform:translateY(-50%);border-radius:4px;background:#E7ECF4}
 .ut-topbar{display:flex;justify-content:flex-end;align-items:center;gap:10px;font-size:12px;color:#5B6478;margin-bottom:10px}
 .ut-topbar button{appearance:none;font:inherit;font-size:12px;border:1px solid #DCE3EF;background:#fff;color:#173069;border-radius:6px;padding:4px 10px;cursor:pointer}
-.ut-login{position:fixed;inset:0;background:#173069;display:grid;place-items:center;z-index:50;padding:16px}
-.ut-login form{background:#fff;border-radius:12px;padding:28px 24px;width:min(360px,100%);display:flex;flex-direction:column;gap:14px;align-items:center;box-shadow:0 20px 50px rgba(0,0,0,.3)}
-.ut-login img{width:96px;height:96px;border-radius:12px}
-.ut-login h1{margin:0;font-size:18px;color:#173069}
-.ut-login input{width:100%;box-sizing:border-box;font:inherit;font-size:16px;border:1px solid #DCE3EF;border-radius:8px;padding:10px 12px}
-.ut-login button{width:100%;font:inherit;font-size:15px;border:0;background:#173069;color:#fff;border-radius:8px;padding:10px;cursor:pointer}
-.ut-login .err{color:#C8372D;font-size:13px;min-height:1em;margin:0}
 </style>
 </head>
 <body>
-<div class="ut-login" id="ut-login" hidden>
-  <form id="ut-login-form">
-    <img src="/ut-logo.png" alt="UT Poker">
-    <h1>UT Poker 營運儀表板</h1>
-    <input type="password" id="ut-pw" placeholder="請輸入密碼" autocomplete="current-password" aria-label="密碼" required>
-    <p class="err" id="ut-login-err"></p>
-    <button type="submit">登入</button>
-  </form>
-</div>
 <script src="/runtime.js"></script>
 <div id="dash-root" lang="zh-TW">
-<div class="ut-topbar"><span id="ut-loaded">—</span><button type="button" id="ut-refresh">重新整理資料</button><button type="button" id="ut-logout">登出</button></div>
+<div class="ut-topbar"><span id="ut-loaded">—</span><button type="button" id="ut-refresh">重新整理資料</button></div>
 <style>
 /* Layout: blue header band → live bubbles → automation status strip → three tabs (TLT 賽事 / 月份對比 / 週年慶折抵) */
 /* Always light: the site keeps a light ground in every theme */
@@ -1205,22 +1189,11 @@ details.ut-notes ul{margin:8px 0 0;padding-left:18px;color:var(--color-fg-muted)
 </div>
 <script>
 (function () {
-  const login = document.getElementById('ut-login');
-  window.utShowLogin = () => { login.hidden = false; setTimeout(() => document.getElementById('ut-pw').focus(), 50); };
   window.utLoadedAt = (at) => {
     const d = new Date(at);
     document.getElementById('ut-loaded').textContent = '資料讀取時間 ' + d.toLocaleString('zh-TW', { timeZone: 'Asia/Taipei', hour12: false });
   };
-  document.getElementById('ut-login-form').addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const err = document.getElementById('ut-login-err');
-    err.textContent = '';
-    const r = await fetch('/api/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password: document.getElementById('ut-pw').value }) }).catch(() => null);
-    if (r && r.ok) { login.hidden = true; document.getElementById('ut-pw').value = ''; window.utStart(); }
-    else err.textContent = r && r.status === 401 ? '密碼錯誤，請再試一次' : '登入失敗，請稍後再試';
-  });
   document.getElementById('ut-refresh').addEventListener('click', () => dash.refresh());
-  document.getElementById('ut-logout').addEventListener('click', async () => { await fetch('/api/logout', { method: 'POST' }); location.reload(); });
   window.utStart();
 })();
 </script>

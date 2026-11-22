@@ -1,14 +1,13 @@
 // Returns the raw sheet cells the dashboard needs. Only fixed ranges of the two
 // report spreadsheets can be read; the month is checked against a fixed list.
-const { DAILY_SHEET, COUPON_SHEET, isAuthed, sheetsGet } = require('./_lib');
+const { DAILY_SHEET, COUPON_SHEET, sheetsGet } = require('./_lib');
 
 const MONTHS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
 const monthRange = (m) => `'${m}月TLT報表'!A2:Z36`;
 
 module.exports = async (req, res) => {
   res.setHeader('content-type', 'application/json; charset=utf-8');
-  res.setHeader('cache-control', 'private, no-store');
-  if (!isAuthed(req)) { res.statusCode = 401; return res.end('{"error":"login"}'); }
+  res.setHeader('cache-control', 'no-store');
 
   const url = new URL(req.url, 'http://x');
   const month = Number(url.searchParams.get('month'));

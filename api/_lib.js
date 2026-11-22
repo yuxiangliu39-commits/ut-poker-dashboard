@@ -3,40 +3,7 @@ const crypto = require('node:crypto');
 
 const DAILY_SHEET = '1AA5ND3W18M3y_44W6-1G9rC5FCK719Rbkfzd2yWJxPY'; // 每日報表
 const COUPON_SHEET = '1K0fg4LWicoJl1tGvTkb0wLklSZbAIKfez0CxEjW6oKw'; // 週年慶全免折抵報表
-const COOKIE = 'ut_dash';
-const SESSION_DAYS = 30;
-
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
-
-function sessionSecret() {
-  const s = process.env.SESSION_SECRET || process.env.DASH_PASSWORD;
-  if (!s) throw new Error('DASH_PASSWORD is not set');
-  return crypto.createHash('sha256').update('ut-dash-session:' + s).digest();
-}
-
-function makeSessionCookie() {
-  const exp = Date.now() + SESSION_DAYS * 864e5;
-  const sig = b64url(crypto.createHmac('sha256', sessionSecret()).update('v1:' + exp).digest());
-  return `${COOKIE}=${exp}.${sig}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${SESSION_DAYS * 86400}`;
-}
-
-function isAuthed(req) {
-  const raw = (req.headers.cookie || '').split(';').map((c) => c.trim()).find((c) => c.startsWith(COOKIE + '='));
-  if (!raw) return false;
-  const [exp, sig] = raw.slice(COOKIE.length + 1).split('.');
-  if (!exp || !sig || Number(exp) < Date.now()) return false;
-  const want = b64url(crypto.createHmac('sha256', sessionSecret()).update('v1:' + exp).digest());
-  const a = Buffer.from(sig), b = Buffer.from(want);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
-}
-
-function passwordMatches(input) {
-  const pw = process.env.DASH_PASSWORD || '';
-  if (!pw || typeof input !== 'string') return false;
-  const a = crypto.createHash('sha256').update(input).digest();
-  const b = crypto.createHash('sha256').update(pw).digest();
-  return crypto.timingSafeEqual(a, b);
-}
 
 // --- Google service account (JWT → access token), cached per warm instance
 let cachedToken = null;
@@ -69,4 +36,4 @@ async function sheetsGet(path) {
   return j;
 }
 
-module.exports = { DAILY_SHEET, COUPON_SHEET, makeSessionCookie, isAuthed, passwordMatches, sheetsGet };
+module.exports = { DAILY_SHEET, COUPON_SHEET, sheetsGet };

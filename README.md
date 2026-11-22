@@ -1,6 +1,6 @@
 # UT Poker 營運儀表板
 
-讀取 Google 試算表「每日報表」與「週年慶全免折抵報表」的營運儀表板，部署在 Vercel，網站需要密碼才能看。
+讀取 Google 試算表「每日報表」與「週年慶全免折抵報表」的營運儀表板，部署在 Vercel。網站沒有密碼，任何拿到網址的人都看得到；需要限制時，可在 Vercel 的 Settings → Deployment Protection 開啟保護。
 
 - 前一日概況、日期／月份查詢
 - 本月現況：客人、場次、優惠券、收益
@@ -11,7 +11,6 @@
 - `index.html`：儀表板頁面。
 - `runtime.js`：提供頁面所需的資料函式，向 `/api/data` 取資料。
 - `api/data.js`：Vercel 伺服器用 Google 服務帳號讀試算表，只讀固定的分頁與範圍（3～12 月 TLT 報表、折抵報表兩個分頁）。
-- `api/login.js`、`api/logout.js`：密碼登入，登入後 30 天內不用再輸入。
 
 試算表由每天的排程任務更新；打開網頁或按「重新整理資料」就會讀最新內容。
 
@@ -33,13 +32,11 @@ Vercel 專案 → Settings → Environment Variables，新增：
 | 名稱 | 內容 |
 |---|---|
 | `GOOGLE_SERVICE_ACCOUNT_JSON` | 金鑰 JSON 檔的完整內容（整份貼上） |
-| `DASH_PASSWORD` | 網站登入密碼（自己設定，建議 12 碼以上） |
 
 設定好後到 Deployments 對最新一次部署按「Redeploy」，新的環境變數才會生效。
 
 ## 日常使用
-- 網址打開 → 輸入密碼 → 看儀表板。
-- 要換密碼：改 `DASH_PASSWORD` 後 Redeploy，所有已登入的人都會被登出。
+- 打開網址就能看儀表板；按「重新整理資料」讀最新內容。
 - 新月份：試算表新增「12月TLT報表」這類分頁後，網站會自動讀到，不用改程式。
 
 ## 收益與計算方式
